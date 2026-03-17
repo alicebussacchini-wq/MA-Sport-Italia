@@ -416,87 +416,148 @@ def _generate_report(df: pd.DataFrame) -> bytes:
 # Mergermarket CSV import
 # =============================================================================
 def _extract_articles_from_pdf(pdf_bytes: bytes) -> list[dict]:
-    """Estrae notizie/deal da un PDF Mergermarket usando pdfplumber."""
+    """Estrae notizie/deal da un PDF Mergermarket.
+
+    Il formato Mergermarket e':
+    - Pagina 1: Table of Contents con titoli + date
+    - Pagine successive: un articolo per pagina con titolo grande,
+      data | paese | settore, bullet points, corpo testo, copyright ION
+    """
     import pdfplumber
     import hashlib
     import re
 
     articles = []
-    full_text = ""
+    seen_titles: set[str] = set()
 
+    # --- STEP 1: Estrai dal Table of Contents (pagina 1) ---
+    toc_articles: list[dict] = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        # Raccogli tutto il testo
+        all_pages_text: list[str] = []
         for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                full_text += page_text + "\n\n"
+            txt = page.extract_text()
+            all_pages_text.append(txt if txt else "")
 
-            # Prova anche a estrarre tabelle
-            tables = page.extract_tables()
-            for table in tables:
-                if not table:
-                    continue
-                # Prima riga come header
-                headers = [str(h).strip().lower() if h else "" for h in table[0]]
-                for row in table[1:]:
-                    if not row or all(not cell for cell in row):
-                        continue
-                    row_dict = {}
-                    for i, cell in enumerate(row):
-                        if i < len(headers) and headers[i]:
-                            row_dict[headers[i]] = str(cell).strip() if cell else ""
-                    # Cerca colonne con titolo/headline
-                    title = (row_dict.get("title") or row_dict.get("headline")
-                             or row_dict.get("deal") or row_dict.get("notizia")
-                             or row_dict.get("subject") or row_dict.get("story")
-                             or "")
-                    if title and len(title) > 10:
-                        art_hash = hashlib.md5(title.encode()).hexdigest()[:12]
-                        articles.append({
-                            "title": title,
-                            "link": row_dict.get("link", row_dict.get("url", "")),
-                            "source": "Mergermarket (PDF import)",
-                            "published": row_dict.get("date", row_dict.get("data", "")),
-                            "summary": (row_dict.get("summary", row_dict.get("snippet", "")) or title)[:500],
-                            "importance_score": 7,
-                            "key_points": f"- Fonte: Mergermarket\n- {title}",
-                            "title_hash": art_hash,
-                        })
+    full_text = "\n\n".join(all_pages_text)
 
-    # Se non ha trovato tabelle, estrai dal testo libero
-    if not articles and full_text.strip():
-        # Splitta per paragrafi/blocchi significativi
-        # Mergermarket spesso ha blocchi separati per deal
-        blocks = re.split(r'\n{2,}', full_text)
-        for block in blocks:
-            block = block.strip()
-            # Ignora blocchi troppo corti o header/footer
-            if len(block) < 40:
+    # --- STEP 2: Parse dal TOC (titoli + date sulla prima pagina) ---
+    # Pattern: titolo su una riga, data su riga successiva (es. "04 Feb 2025")
+    date_pattern = re.compile(
+        r'^(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})',
+        re.MULTILINE
+    )
+
+    # Splitta il testo completo per trovare blocchi articolo
+    # Mergermarket separa articoli con il pattern copyright ION
+    article_blocks = re.split(r'(?:\xa9|©)\s*\d{4}\s*ION', full_text)
+
+    for block in article_blocks:
+        block = block.strip()
+        if len(block) < 50:
+            continue
+
+        # Cerca il titolo: prima riga significativa che non e' un timestamp/header
+        lines = block.split("\n")
+        title = ""
+        date_str = ""
+        bullet_points = []
+        body_lines = []
+        found_title = False
+        found_date = False
+        in_body = False
+
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
                 continue
-            if any(skip in block.lower() for skip in [
-                "mergermarket", "copyright", "disclaimer", "page ",
-                "all rights reserved", "confidential"
+
+            # Skip header/footer noise
+            if any(skip in line_stripped.lower() for skip in [
+                "table of contents", "intelligence and research",
+                "mergermarket.ionanalytics.com",
+                "this document is protected", "you may not alter",
+                "for unauthorized use", "your agreement with ion",
+                "link to the original", "link to press release",
+                "sourced from print",
             ]):
                 continue
 
-            # Prima riga come titolo
-            lines = block.split("\n")
-            title = lines[0].strip()
-            if len(title) < 15 or len(title) > 300:
+            # Skip Mergermarket header timestamp lines (e.g. "17/03/26, 18:02 2026-03-17 ...")
+            if re.match(r'^\d{2}/\d{2}/\d{2},\s+\d{2}:\d{2}', line_stripped):
                 continue
 
-            body = " ".join(lines[1:]).strip() if len(lines) > 1 else title
-            art_hash = hashlib.md5(title.encode()).hexdigest()[:12]
+            # Skip page numbers like "1/26", "2/26"
+            if re.match(r'^\d+/\d+$', line_stripped):
+                continue
 
-            articles.append({
-                "title": title,
-                "link": "",
-                "source": "Mergermarket (PDF import)",
-                "published": "",
-                "summary": body[:500],
-                "importance_score": 7,
-                "key_points": f"- Fonte: Mergermarket\n- {title}",
-                "title_hash": art_hash,
-            })
+            # Detect date line (e.g. "04 Feb 2025 02:25 CEST Italy Leisure...")
+            date_match = re.match(
+                r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})',
+                line_stripped
+            )
+            if date_match and not found_date and found_title:
+                date_str = date_match.group(1)
+                found_date = True
+                continue
+
+            # Detect Mergermarket logo text
+            if line_stripped in ("Mergermarket", "Proprietary", "Press Release"):
+                continue
+
+            # Detect bullet points (start with bullet char)
+            if line_stripped.startswith(("\u2b24", "\u25cf", "\u2022", "•")):
+                bullet_points.append("- " + line_stripped.lstrip("\u2b24\u25cf\u2022• "))
+                continue
+
+            # Detect author lines
+            if line_stripped.startswith("by ") and len(line_stripped) < 80:
+                continue
+
+            # First significant line = title
+            if not found_title and len(line_stripped) > 15 and not line_stripped.startswith("http"):
+                # Could be a multi-line title, accumulate
+                if not title:
+                    title = line_stripped
+                    found_title = True
+                continue
+
+            # Body text (after title + date)
+            if found_title and found_date:
+                if len(line_stripped) > 20:
+                    body_lines.append(line_stripped)
+
+        # Clean up title
+        title = title.strip()
+        # Remove " (translated)" suffix for dedup but keep in display
+        title_clean = re.sub(r'\s*[\-\u2013]\s*report\s*$', '', title, flags=re.IGNORECASE).strip()
+        title_clean = re.sub(r'\s*\(translated\)\s*$', '', title_clean, flags=re.IGNORECASE).strip()
+
+        if not title or len(title) < 15:
+            continue
+
+        # Dedup by normalized title
+        title_lower = title.lower().strip()
+        if title_lower in seen_titles:
+            continue
+        seen_titles.add(title_lower)
+
+        # Build summary from body
+        body = " ".join(body_lines[:5])[:500] if body_lines else title
+        kp = "\n".join(bullet_points[:5]) if bullet_points else f"- Fonte: Mergermarket\n- {title}"
+
+        art_hash = hashlib.md5(title.encode()).hexdigest()[:12]
+
+        articles.append({
+            "title": title,
+            "link": "",
+            "source": "Mergermarket (PDF import)",
+            "published": date_str,
+            "summary": body,
+            "importance_score": 7,
+            "key_points": kp,
+            "title_hash": art_hash,
+        })
 
     return articles
 
