@@ -10,6 +10,8 @@ from scraper import (
     collect_google_news,
     scrape_calcioefinanza,
     collect_mergermarket,
+    collect_sport_business,
+    collect_finanza_sport,
 )
 from processing import filter_with_claude, deduplicate
 from storage import save_to_sheets
@@ -30,13 +32,41 @@ def run_pipeline():
 
     # 1. Raccolta da tutte le fonti
     logger.info("-- FASE 1: Raccolta notizie --")
+
+    # Fonti RSS (testate italiane + internazionali + PE)
     rss_articles = collect_rss()
+
+    # Google News (query M&A sport mirate)
     google_articles = collect_google_news()
+
+    # Scraping diretto Calcio e Finanza
     scraped_articles = scrape_calcioefinanza()
+
+    # Mergermarket (contenuti indicizzati su Google)
     mm_articles = collect_mergermarket()
 
-    all_articles = rss_articles + google_articles + scraped_articles + mm_articles
+    # Sport Business internazionali (Bloomberg, FT, Reuters, Sky, SportBusiness)
+    sb_articles = collect_sport_business()
+
+    # Stampa finanziaria italiana (MF, ANSA Economia, BeBeez, Repubblica)
+    fin_articles = collect_finanza_sport()
+
+    all_articles = (
+        rss_articles
+        + google_articles
+        + scraped_articles
+        + mm_articles
+        + sb_articles
+        + fin_articles
+    )
+
     logger.info("Totale articoli raccolti: %d", len(all_articles))
+    logger.info("  RSS:              %d", len(rss_articles))
+    logger.info("  Google News:      %d", len(google_articles))
+    logger.info("  Calcio e Finanza: %d", len(scraped_articles))
+    logger.info("  Mergermarket:     %d", len(mm_articles))
+    logger.info("  Sport Business:   %d", len(sb_articles))
+    logger.info("  Finanza Sport:    %d", len(fin_articles))
 
     if not all_articles:
         logger.warning("Nessun articolo raccolto. Pipeline terminata.")
@@ -45,7 +75,8 @@ def run_pipeline():
     # 2. Deduplicazione
     logger.info("-- FASE 2: Deduplicazione --")
     unique_articles = deduplicate(all_articles)
-    logger.info("Articoli dopo dedup: %d", len(unique_articles))
+    logger.info("Articoli dopo dedup: %d (rimossi %d duplicati)",
+                len(unique_articles), len(all_articles) - len(unique_articles))
 
     # 3. Filtro Claude AI (severo) + ranking + riassunti
     logger.info("-- FASE 3: Filtro + Ranking + Riassunti (Claude) --")
