@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -31,9 +34,35 @@ HEADER_ROW = [
 
 
 def _get_client() -> gspread.Client:
-    creds = Credentials.from_service_account_file(
-        GOOGLE_SHEETS_CREDENTIALS_JSON, scopes=SCOPES
-    )
+    """Crea il client gspread.
+
+    Supporta tre modalita:
+    1. Streamlit Cloud secrets (st.secrets["gcp_service_account"])
+    2. Variabile d'ambiente con JSON inline (GOOGLE_SHEETS_CREDENTIALS_JSON inizia con '{')
+    3. File locale (path al service_account.json)
+    """
+    # 1) Streamlit Cloud secrets
+    try:
+        import streamlit as st
+        if "gcp_service_account" in st.secrets:
+            creds_info = dict(st.secrets["gcp_service_account"])
+            creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+            logger.info("Credenziali caricate da Streamlit secrets")
+            return gspread.authorize(creds)
+    except Exception:
+        pass
+
+    # 2) JSON inline nella variabile d'ambiente
+    creds_val = GOOGLE_SHEETS_CREDENTIALS_JSON
+    if creds_val.strip().startswith("{"):
+        creds_info = json.loads(creds_val)
+        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        logger.info("Credenziali caricate da JSON inline")
+        return gspread.authorize(creds)
+
+    # 3) File locale
+    creds = Credentials.from_service_account_file(creds_val, scopes=SCOPES)
+    logger.info("Credenziali caricate da file: %s", creds_val)
     return gspread.authorize(creds)
 
 
