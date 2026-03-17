@@ -415,8 +415,94 @@ def _generate_report(df: pd.DataFrame) -> bytes:
 # =============================================================================
 # Mergermarket CSV import
 # =============================================================================
+def _extract_articles_from_pdf(pdf_bytes: bytes) -> list[dict]:
+    """Estrae notizie/deal da un PDF Mergermarket usando pdfplumber."""
+    import pdfplumber
+    import hashlib
+    import re
+
+    articles = []
+    full_text = ""
+
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                full_text += page_text + "\n\n"
+
+            # Prova anche a estrarre tabelle
+            tables = page.extract_tables()
+            for table in tables:
+                if not table:
+                    continue
+                # Prima riga come header
+                headers = [str(h).strip().lower() if h else "" for h in table[0]]
+                for row in table[1:]:
+                    if not row or all(not cell for cell in row):
+                        continue
+                    row_dict = {}
+                    for i, cell in enumerate(row):
+                        if i < len(headers) and headers[i]:
+                            row_dict[headers[i]] = str(cell).strip() if cell else ""
+                    # Cerca colonne con titolo/headline
+                    title = (row_dict.get("title") or row_dict.get("headline")
+                             or row_dict.get("deal") or row_dict.get("notizia")
+                             or row_dict.get("subject") or row_dict.get("story")
+                             or "")
+                    if title and len(title) > 10:
+                        art_hash = hashlib.md5(title.encode()).hexdigest()[:12]
+                        articles.append({
+                            "title": title,
+                            "link": row_dict.get("link", row_dict.get("url", "")),
+                            "source": "Mergermarket (PDF import)",
+                            "published": row_dict.get("date", row_dict.get("data", "")),
+                            "summary": (row_dict.get("summary", row_dict.get("snippet", "")) or title)[:500],
+                            "importance_score": 7,
+                            "key_points": f"- Fonte: Mergermarket\n- {title}",
+                            "title_hash": art_hash,
+                        })
+
+    # Se non ha trovato tabelle, estrai dal testo libero
+    if not articles and full_text.strip():
+        # Splitta per paragrafi/blocchi significativi
+        # Mergermarket spesso ha blocchi separati per deal
+        blocks = re.split(r'\n{2,}', full_text)
+        for block in blocks:
+            block = block.strip()
+            # Ignora blocchi troppo corti o header/footer
+            if len(block) < 40:
+                continue
+            if any(skip in block.lower() for skip in [
+                "mergermarket", "copyright", "disclaimer", "page ",
+                "all rights reserved", "confidential"
+            ]):
+                continue
+
+            # Prima riga come titolo
+            lines = block.split("\n")
+            title = lines[0].strip()
+            if len(title) < 15 or len(title) > 300:
+                continue
+
+            body = " ".join(lines[1:]).strip() if len(lines) > 1 else title
+            art_hash = hashlib.md5(title.encode()).hexdigest()[:12]
+
+            articles.append({
+                "title": title,
+                "link": "",
+                "source": "Mergermarket (PDF import)",
+                "published": "",
+                "summary": body[:500],
+                "importance_score": 7,
+                "key_points": f"- Fonte: Mergermarket\n- {title}",
+                "title_hash": art_hash,
+            })
+
+    return articles
+
+
 def _mergermarket_import_section():
-    """Sezione per import manuale di dati esportati da Mergermarket."""
+    """Sezione per import manuale di dati esportati da Mergermarket (PDF o CSV)."""
     st.markdown(
         f'<div style="color:{TEXT_PRIMARY};font-size:1.2rem;font-weight:600;'
         f'margin:1rem 0 0.5rem 0;padding-bottom:0.4rem;border-bottom:2px solid {HL_TEAL};">'
@@ -425,56 +511,80 @@ def _mergermarket_import_section():
     )
     st.markdown(
         f'<p style="color:{TEXT_MUTED};font-size:0.88rem;margin-bottom:1rem;font-family:Georgia,serif;">'
-        f'Esporta i dati dal tuo account Mergermarket in formato CSV, poi caricali qui. '
-        f'Il file deve contenere almeno le colonne: <strong style="color:{HL_LIME};">Title</strong>, '
-        f'<strong style="color:{HL_LIME};">Link</strong> (opzionale), '
-        f'<strong style="color:{HL_LIME};">Date</strong> (opzionale).</p>',
+        f'Esporta i dati dal tuo account Mergermarket in formato <strong style="color:{HL_LIME};">PDF</strong> '
+        f'o <strong style="color:{HL_LIME};">CSV</strong>, poi caricali qui. '
+        f'Il sistema estrae automaticamente le notizie dal documento.</p>',
         unsafe_allow_html=True,
     )
 
     uploaded = st.file_uploader(
-        "Carica CSV Mergermarket",
-        type=["csv"],
+        "Carica file Mergermarket",
+        type=["pdf", "csv"],
         key="mm_upload",
     )
 
     if uploaded is not None:
         try:
-            content = uploaded.getvalue().decode("utf-8")
-            reader = csv.DictReader(io.StringIO(content))
-            rows = list(reader)
+            file_name = uploaded.name.lower()
+            articles = []
 
-            if rows:
-                st.success(f"Caricati {len(rows)} record da Mergermarket.")
+            if file_name.endswith(".pdf"):
+                # --- Estrazione da PDF ---
+                pdf_bytes = uploaded.getvalue()
+                with st.spinner("Estrazione notizie dal PDF in corso..."):
+                    articles = _extract_articles_from_pdf(pdf_bytes)
 
-                # Show preview
-                preview_df = pd.DataFrame(rows).head(5)
-                st.dataframe(preview_df, use_container_width=True)
+                if articles:
+                    st.success(f"Estratti **{len(articles)}** articoli dal PDF.")
+                    preview_df = pd.DataFrame(articles)[["title", "source", "published"]].head(10)
+                    st.dataframe(preview_df, use_container_width=True)
+                else:
+                    st.warning("Non sono riuscito ad estrarre articoli dal PDF. "
+                               "Prova con un formato diverso o verifica che il PDF contenga testo selezionabile.")
 
-                if st.button("Salva in archivio", key="mm_save"):
-                    from storage.gsheets import save_to_sheets
-                    articles = []
-                    for r in rows:
-                        title = r.get("Title", r.get("title", r.get("Headline", "")))
-                        if not title:
-                            continue
-                        articles.append({
-                            "title": title,
-                            "link": r.get("Link", r.get("link", r.get("URL", ""))),
-                            "source": "Mergermarket (import)",
-                            "published": r.get("Date", r.get("date", r.get("Published", ""))),
-                            "summary": r.get("Summary", r.get("summary", r.get("Snippet", "")))[:500],
-                            "importance_score": 7,
-                            "key_points": f"- Fonte: Mergermarket\n- {title}",
-                        })
-                    if articles:
-                        count = save_to_sheets(articles)
-                        st.success(f"Salvati {count} articoli Mergermarket nell'archivio.")
-                        st.cache_data.clear()
             else:
-                st.warning("Il file CSV sembra vuoto.")
+                # --- Estrazione da CSV ---
+                import hashlib
+                content = uploaded.getvalue().decode("utf-8")
+                reader = csv.DictReader(io.StringIO(content))
+                rows = list(reader)
+
+                for r in rows:
+                    title = r.get("Title", r.get("title", r.get("Headline", "")))
+                    if not title:
+                        continue
+                    art_hash = hashlib.md5(title.encode()).hexdigest()[:12]
+                    articles.append({
+                        "title": title,
+                        "link": r.get("Link", r.get("link", r.get("URL", ""))),
+                        "source": "Mergermarket (CSV import)",
+                        "published": r.get("Date", r.get("date", r.get("Published", ""))),
+                        "summary": (r.get("Summary", r.get("summary", r.get("Snippet", ""))) or title)[:500],
+                        "importance_score": 7,
+                        "key_points": f"- Fonte: Mergermarket\n- {title}",
+                        "title_hash": art_hash,
+                    })
+
+                if articles:
+                    st.success(f"Caricati **{len(articles)}** record dal CSV.")
+                    preview_df = pd.DataFrame(articles)[["title", "source", "published"]].head(10)
+                    st.dataframe(preview_df, use_container_width=True)
+                else:
+                    st.warning("Il file CSV sembra vuoto o non contiene colonne riconoscibili.")
+
+            # Bottone salvataggio
+            if articles:
+                if st.button("Salva in archivio", key="mm_save", use_container_width=False):
+                    from storage.gsheets import save_to_sheets
+                    count = save_to_sheets(articles)
+                    if count > 0:
+                        st.success(f"Salvati **{count}** nuovi articoli Mergermarket nell'archivio.")
+                    else:
+                        st.info("Tutti gli articoli erano gia presenti nell'archivio.")
+                    st.cache_data.clear()
+
         except Exception as e:
-            st.error(f"Errore lettura CSV: {e}")
+            st.error(f"Errore lettura file: {e}")
 
 
 # =============================================================================
