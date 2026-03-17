@@ -24,6 +24,8 @@ HEADER_ROW = [
     "published",
     "link",
     "summary",
+    "key_points",
+    "importance_score",
     "title_hash",
 ]
 
@@ -56,11 +58,11 @@ def _get_or_create_sheet(client: gspread.Client) -> gspread.Worksheet:
 
 
 def _get_existing_hashes(worksheet: gspread.Worksheet) -> set[str]:
-    """Recupera gli hash già presenti per evitare duplicati cross-settimana."""
+    """Recupera gli hash gia presenti per evitare duplicati cross-settimana."""
     try:
         hash_col_idx = HEADER_ROW.index("title_hash") + 1
         values = worksheet.col_values(hash_col_idx)
-        return set(values[1:])  # salta header
+        return set(values[1:])
     except Exception:
         return set()
 
@@ -69,7 +71,7 @@ def save_to_sheets(articles: list[dict]) -> int:
     """Salva gli articoli su Google Sheets, evitando duplicati.
 
     Args:
-        articles: Lista di articoli filtrati e deduplicati.
+        articles: Lista di articoli filtrati con key_points e importance_score.
 
     Returns:
         Numero di nuovi articoli aggiunti.
@@ -101,6 +103,8 @@ def save_to_sheets(articles: list[dict]) -> int:
                 art.get("published", ""),
                 art.get("link", ""),
                 art.get("summary", "")[:500],
+                art.get("key_points", ""),
+                art.get("importance_score", 0),
                 art_hash,
             ]
         )
@@ -109,7 +113,7 @@ def save_to_sheets(articles: list[dict]) -> int:
         worksheet.append_rows(rows_to_add)
         logger.info("Salvati %d nuovi articoli su Sheets", len(rows_to_add))
     else:
-        logger.info("Nessun nuovo articolo da aggiungere (tutti già presenti)")
+        logger.info("Nessun nuovo articolo da aggiungere (tutti gia presenti)")
 
     return len(rows_to_add)
 

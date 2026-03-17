@@ -61,7 +61,7 @@ def collect_rss() -> list[dict]:
                 }
             )
 
-        logger.info("  → %d articoli dopo pre-filtro da %s", len(articles), source_name)
+        logger.info("  -> %d articoli dopo pre-filtro da %s", len(articles), source_name)
 
     logger.info("RSS totale: %d articoli raccolti", len(articles))
     return articles
