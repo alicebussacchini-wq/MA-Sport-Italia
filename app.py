@@ -1,284 +1,194 @@
-"""Dashboard Streamlit - M&A Sport Italia Newsletter."""
+"""Dashboard Streamlit - M&A Sport Italia Intelligence.
+
+Branded per Hogan Lovells secondo le Brand Guidelines (March 2025).
+Palette: Dark Green #243508, Lime Green #BFF355, Teal #82C8BE,
+         Lilac #B1A6FF, Taupe #E2D6CF, White #FFFFFF
+Typography fallback: Arial (headlines), Georgia (body)
+Tone: Dynamic, Precise, Committed, Authentic
+"""
 
 from __future__ import annotations
+
+import csv
+import io
+from datetime import datetime
 
 import streamlit as st
 import pandas as pd
 
 from config import WHITELIST_EMAILS, DASHBOARD_PASSWORD
 
-# -- Page config ---------------------------------------------------------------
+# =============================================================================
+# Hogan Lovells Brand Palette (from Brand Guidelines p.70)
+# =============================================================================
+HL_LIME = "#BFF355"       # Hero lime green
+HL_DARK_GREEN = "#243508" # Dark green (backgrounds, text)
+HL_TEAL = "#82C8BE"       # Active accent
+HL_LILAC = "#B1A6FF"      # Active accent
+HL_TAUPE = "#E2D6CF"      # Neutral
+HL_WHITE = "#FFFFFF"
+HL_BLACK = "#0D0D0D"      # 95% black
+
+# Dashboard dark mode — black base, lime green accents only
+BG_PRIMARY = "#0A0A0A"    # Pure black base
+BG_CARD = "#111111"       # Card backgrounds
+BG_SURFACE = "#161616"    # Elevated surfaces
+BORDER = "#222222"        # Subtle borders
+TEXT_PRIMARY = "#F0F0F0"  # Clean white text
+TEXT_MUTED = "#888888"    # Neutral grey muted text
+
+# HL Official Logo — inline base64 for reliable rendering
+import base64, pathlib
+_logo_path = pathlib.Path(__file__).parent / "static" / "hl_logo.png"
+if _logo_path.exists():
+    _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
+    _logo_src = f"data:image/png;base64,{_logo_b64}"
+else:
+    _logo_src = ""
+HL_LOGO_SMALL = f'<img src="{_logo_src}" alt="Hogan Lovells" style="height:44px;border-radius:4px;" />' if _logo_src else '<span style="color:#BFF355;font-weight:bold;">HOGAN LOVELLS</span>'
+HL_LOGO_LARGE = f'<img src="{_logo_src}" alt="Hogan Lovells" style="height:80px;border-radius:4px;" />' if _logo_src else '<span style="color:#BFF355;font-size:2rem;font-weight:bold;">HOGAN LOVELLS</span>'
+
+# =============================================================================
+# Page config
+# =============================================================================
 st.set_page_config(
-    page_title="M&A Sport Italia",
-    page_icon="https://em-content.zobj.net/source/twitter/408/soccer-ball_26bd.png",
+    page_title="M&A Sport Italia | Hogan Lovells",
+    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%23BFF355'/><text x='12' y='68' font-family='serif' font-weight='bold' font-size='42' fill='%23243508'>HL</text></svg>",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# -- Custom CSS ----------------------------------------------------------------
-st.markdown("""
+# =============================================================================
+# CSS - Hogan Lovells branded
+# =============================================================================
+st.markdown(f"""
 <style>
-    /* Main background */
-    .stApp {
-        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0d1117 100%);
-    }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-    /* Hide default streamlit elements */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* --- Base --- */
+    .stApp {{
+        background: {BG_PRIMARY};
+        font-family: 'Inter', Arial, sans-serif;
+    }}
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: #111827;
-        border-right: 1px solid #1e3a5f;
-    }
+    #MainMenu {{visibility: hidden;}}
+    header {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+
+    /* --- Sidebar (dark green) --- */
+    section[data-testid="stSidebar"] {{
+        background: {BG_PRIMARY};
+        border-right: 1px solid {BORDER};
+    }}
     section[data-testid="stSidebar"] .stMarkdown p,
     section[data-testid="stSidebar"] .stMarkdown label,
-    section[data-testid="stSidebar"] .stMarkdown span {
-        color: #94a3b8 !important;
-    }
+    section[data-testid="stSidebar"] .stMarkdown span {{
+        color: {TEXT_MUTED} !important;
+    }}
 
-    /* Typography */
-    h1, h2, h3 { color: #f1f5f9 !important; }
+    h1, h2, h3 {{ color: {TEXT_PRIMARY} !important; font-family: 'Inter', Arial, sans-serif !important; }}
 
-    /* Hero header */
-    .hero-header {
-        background: linear-gradient(135deg, #1e3a5f 0%, #2d1b69 100%);
-        border: 1px solid #334155;
-        border-radius: 16px;
-        padding: 2rem 2.5rem;
-        margin-bottom: 1.5rem;
-    }
-    .hero-header h1 {
-        font-size: 2rem !important;
-        font-weight: 700 !important;
-        margin: 0 !important;
-        letter-spacing: -0.5px;
-    }
-    .hero-header .subtitle {
-        color: #94a3b8;
-        font-size: 1rem;
-        margin-top: 0.3rem;
-    }
+    /* --- Inputs --- */
+    .stTextInput input {{
+        background: {BG_CARD} !important;
+        border: 1px solid {BORDER} !important;
+        color: {TEXT_PRIMARY} !important;
+        border-radius: 8px !important;
+    }}
+    .stSelectbox > div > div {{
+        background: {BG_CARD} !important;
+        border-color: {BORDER} !important;
+    }}
 
-    /* KPI cards */
-    .kpi-row {
-        display: flex;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-    .kpi-card {
-        background: linear-gradient(135deg, #111827, #1e293b);
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 1.2rem 1.5rem;
-        flex: 1;
-        text-align: center;
-    }
-    .kpi-value {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #60a5fa;
-        line-height: 1;
-    }
-    .kpi-label {
-        font-size: 0.8rem;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-top: 0.4rem;
-    }
-    .kpi-card.gold .kpi-value { color: #fbbf24; }
-    .kpi-card.green .kpi-value { color: #34d399; }
-    .kpi-card.purple .kpi-value { color: #a78bfa; }
-
-    /* News card */
-    .news-card {
-        background: #111827;
-        border: 1px solid #1e3a5f;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-        transition: border-color 0.2s;
-    }
-    .news-card:hover {
-        border-color: #3b82f6;
-    }
-    .news-card .card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 0.8rem;
-    }
-    .news-card .card-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #f1f5f9;
-        margin: 0;
-        line-height: 1.4;
-    }
-    .news-card .card-title a {
-        color: #60a5fa !important;
-        text-decoration: none !important;
-    }
-    .news-card .card-title a:hover {
-        color: #93c5fd !important;
-        text-decoration: underline !important;
-    }
-    .news-card .card-meta {
-        display: flex;
-        gap: 1rem;
-        margin-bottom: 0.8rem;
-        flex-wrap: wrap;
-    }
-    .news-card .meta-tag {
-        font-size: 0.75rem;
-        padding: 0.2rem 0.6rem;
-        border-radius: 6px;
-        font-weight: 500;
-    }
-    .source-tag {
-        background: #1e3a5f;
-        color: #93c5fd;
-    }
-    .date-tag {
-        background: #1a2332;
-        color: #64748b;
-    }
-    .news-card .key-points {
-        background: #0d1117;
-        border-left: 3px solid #3b82f6;
-        border-radius: 0 8px 8px 0;
-        padding: 0.8rem 1rem;
-        margin-top: 0.5rem;
-        color: #cbd5e1;
-        font-size: 0.9rem;
-        line-height: 1.6;
-    }
-
-    /* Score badge */
-    .score-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 36px;
-        height: 36px;
-        border-radius: 10px;
-        font-weight: 700;
-        font-size: 0.95rem;
-        flex-shrink: 0;
-    }
-    .score-high { background: #065f46; color: #34d399; }
-    .score-mid  { background: #713f12; color: #fbbf24; }
-    .score-low  { background: #7f1d1d; color: #fca5a5; }
-
-    /* Section header */
-    .section-header {
-        color: #f1f5f9;
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin: 1.5rem 0 1rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #1e3a5f;
-    }
-
-    /* Login page */
-    .login-box {
-        max-width: 420px;
-        margin: 8vh auto;
-        background: #111827;
-        border: 1px solid #1e3a5f;
-        border-radius: 16px;
-        padding: 2.5rem;
-    }
-    .login-box h2 {
-        text-align: center;
-        margin-bottom: 0.3rem;
-    }
-    .login-subtitle {
-        text-align: center;
-        color: #64748b;
-        margin-bottom: 1.5rem;
-        font-size: 0.9rem;
-    }
-
-    /* Search box */
-    .stTextInput input {
-        background: #1e293b !important;
-        border: 1px solid #334155 !important;
-        color: #f1f5f9 !important;
-        border-radius: 10px !important;
-    }
-
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #2563eb, #4f46e5) !important;
-        color: white !important;
+    /* --- Buttons (lime green, dark text per brand) --- */
+    .stButton > button {{
+        background: {HL_LIME} !important;
+        color: {HL_DARK_GREEN} !important;
         border: none !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         padding: 0.5rem 1.5rem !important;
         font-weight: 600 !important;
-    }
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #3b82f6, #6366f1) !important;
-    }
+        font-family: 'Inter', Arial, sans-serif !important;
+    }}
+    .stButton > button:hover {{
+        background: #D4FF7A !important;
+        color: {HL_DARK_GREEN} !important;
+    }}
 
-    /* Download button */
-    .stDownloadButton > button {
-        background: #111827 !important;
-        border: 1px solid #334155 !important;
-        color: #94a3b8 !important;
-    }
+    .stDownloadButton > button {{
+        background: transparent !important;
+        border: 1px solid {HL_LIME} !important;
+        color: {HL_LIME} !important;
+        font-family: 'Inter', Arial, sans-serif !important;
+    }}
+    .stDownloadButton > button:hover {{
+        background: rgba(191,243,85,0.1) !important;
+    }}
 
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
+    /* --- Tabs (lime active) --- */
+    .stTabs [data-baseweb="tab-list"] {{
         gap: 0;
-        background: #111827;
+        background: {BG_CARD};
         border-radius: 10px;
         padding: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
+        border: 1px solid {BORDER};
+    }}
+    .stTabs [data-baseweb="tab"] {{
         border-radius: 8px;
-        color: #94a3b8;
+        color: {TEXT_MUTED};
         padding: 0.5rem 1.2rem;
-    }
-    .stTabs [aria-selected="true"] {
-        background: #1e3a5f !important;
-        color: #f1f5f9 !important;
-    }
+        font-family: 'Inter', Arial, sans-serif;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background: {BG_SURFACE} !important;
+        color: {HL_LIME} !important;
+        font-weight: 600;
+    }}
 
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: #111827 !important;
-        color: #94a3b8 !important;
-    }
+    /* --- Radio buttons --- */
+    .stRadio label span {{
+        color: {TEXT_MUTED} !important;
+    }}
+    .stRadio [data-checked="true"] span {{
+        color: {HL_LIME} !important;
+    }}
+
+    /* --- File uploader --- */
+    .stFileUploader {{
+        border: 2px dashed {BORDER} !important;
+        border-radius: 12px !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 
-# -- Auth ----------------------------------------------------------------------
+# =============================================================================
+# Auth
+# =============================================================================
 def _check_auth() -> bool:
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
-
     if st.session_state.authenticated:
         return True
 
-    st.markdown("""
-    <div class="login-box">
-        <h2>M&A Sport Italia</h2>
-        <p class="login-subtitle">Intelligence platform per operazioni M&A nel mondo dello sport</p>
+    # Login page
+    st.markdown(f"""
+    <div style="max-width:440px;margin:6vh auto;background:{BG_CARD};
+         border:1px solid {BORDER};border-radius:16px;padding:2.5rem;text-align:center;">
+        <div style="margin-bottom:1.2rem;">{HL_LOGO_LARGE}</div>
+        <h2 style="margin:0 0 0.3rem 0;font-size:1.4rem;color:{TEXT_PRIMARY};">M&A Sport Italia</h2>
+        <p style="color:{TEXT_MUTED};font-size:0.9rem;margin-bottom:0.2rem;">
+            Vital intelligence. Driving M&amp;A insight in Italian sport.</p>
+        <p style="color:{HL_TEAL};font-size:0.75rem;margin:0;">HOGAN LOVELLS</p>
     </div>
     """, unsafe_allow_html=True)
 
     col_left, col_center, col_right = st.columns([1, 1, 1])
     with col_center:
         tab_email, tab_pwd = st.tabs(["Email", "Password"])
-
         with tab_email:
             email = st.text_input("Email aziendale", key="auth_email",
-                                  placeholder="nome@studio.com")
+                                  placeholder="nome@hoganlovells.com")
             if st.button("Accedi", key="btn_email", use_container_width=True):
                 if email.strip().lower() in [e.lower() for e in WHITELIST_EMAILS]:
                     st.session_state.authenticated = True
@@ -286,7 +196,6 @@ def _check_auth() -> bool:
                     st.rerun()
                 else:
                     st.error("Email non autorizzata.")
-
         with tab_pwd:
             pwd = st.text_input("Password", type="password", key="auth_pwd")
             if st.button("Accedi", key="btn_pwd", use_container_width=True):
@@ -296,11 +205,12 @@ def _check_auth() -> bool:
                     st.rerun()
                 else:
                     st.error("Password errata.")
-
     return False
 
 
-# -- Data loading --------------------------------------------------------------
+# =============================================================================
+# Data loading
+# =============================================================================
 @st.cache_data(ttl=300)
 def _load_data() -> pd.DataFrame:
     try:
@@ -323,17 +233,9 @@ def _load_data() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-# -- Rendering helpers ---------------------------------------------------------
-def _score_badge(score: int) -> str:
-    if score >= 8:
-        cls = "score-high"
-    elif score >= 5:
-        cls = "score-mid"
-    else:
-        cls = "score-low"
-    return f'<span class="score-badge {cls}">{score}</span>'
-
-
+# =============================================================================
+# News card renderer (brand-compliant)
+# =============================================================================
 def _render_news_card(row: pd.Series):
     title = str(row.get("title", "Senza titolo")).replace("<", "&lt;").replace(">", "&gt;")
     link = str(row.get("link", ""))
@@ -342,7 +244,6 @@ def _render_news_card(row: pd.Series):
     score = int(row.get("importance_score", 5))
     key_points = str(row.get("key_points", ""))
 
-    # Format published date
     pub_str = ""
     if pd.notna(published) and str(published).strip():
         try:
@@ -350,65 +251,238 @@ def _render_news_card(row: pd.Series):
         except Exception:
             pub_str = str(published)[:10]
 
-    # Score color
+    # Score badge: lime for high, teal for mid, muted for low
     if score >= 8:
-        score_bg, score_fg = "#065f46", "#34d399"
+        score_bg, score_fg = "#1A2508", HL_LIME
+        label = "Confermato"
     elif score >= 5:
-        score_bg, score_fg = "#713f12", "#fbbf24"
+        score_bg, score_fg = "#0D1A18", HL_TEAL
+        label = "In corso"
     else:
-        score_bg, score_fg = "#7f1d1d", "#fca5a5"
+        score_bg, score_fg = "#1A1A18", HL_TAUPE
+        label = "Rumour"
 
-    # Title with link
+    # Title with link (lime green links on dark = brand compliant)
     if link and link != "nan" and link.startswith("http"):
-        title_html = f'<a href="{link}" target="_blank" style="color:#60a5fa;text-decoration:none;">{title}</a>'
+        title_html = f'<a href="{link}" target="_blank" rel="noopener" style="color:{HL_LIME};text-decoration:none;">{title}</a>'
     else:
-        title_html = title
+        title_html = f'<span style="color:{TEXT_PRIMARY};">{title}</span>'
 
-    # Date tag
     date_html = (
-        f'<span style="font-size:0.75rem;padding:0.2rem 0.6rem;border-radius:6px;'
-        f'background:#1a2332;color:#64748b;">{pub_str}</span>'
+        f'<span style="font-size:0.73rem;padding:0.15rem 0.5rem;border-radius:5px;'
+        f'background:rgba(191,243,85,0.08);color:{TEXT_MUTED};">{pub_str}</span>'
         if pub_str else ""
     )
 
-    # Key points
+    # Status tag based on score
+    status_html = (
+        f'<span style="font-size:0.68rem;padding:0.15rem 0.5rem;border-radius:5px;'
+        f'background:{score_bg};color:{score_fg};font-weight:600;letter-spacing:0.5px;'
+        f'text-transform:uppercase;">{label}</span>'
+    )
+
+    # Key points (lime green left border per brand angular style)
     kp_html = ""
     if key_points and key_points.strip() and key_points != "nan":
         kp_lines = key_points.replace("\\n", "\n").split("\n")
         kp_clean = [line.strip() for line in kp_lines if line.strip()]
         kp_text = "<br>".join(kp_clean)
         kp_html = (
-            f'<div style="background:#0d1117;border-left:3px solid #3b82f6;'
-            f'border-radius:0 8px 8px 0;padding:0.8rem 1rem;margin-top:0.5rem;'
-            f'color:#cbd5e1;font-size:0.9rem;line-height:1.6;">{kp_text}</div>'
+            f'<div style="background:rgba(191,243,85,0.04);border-left:3px solid {HL_LIME};'
+            f'border-radius:0 8px 8px 0;padding:0.7rem 1rem;margin-top:0.6rem;'
+            f'color:{HL_TAUPE};font-size:0.85rem;line-height:1.7;'
+            f'font-family:Georgia,serif;">{kp_text}</div>'
         )
 
-    # Single markdown call with all inline styles
     st.markdown(
-        f'<div style="background:#111827;border:1px solid #1e3a5f;border-radius:12px;'
-        f'padding:1.5rem;margin-bottom:1rem;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.8rem;">'
-        f'<p style="font-size:1.1rem;font-weight:600;color:#f1f5f9;margin:0;line-height:1.4;flex:1;margin-right:1rem;">{title_html}</p>'
-        f'<span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;'
-        f'border-radius:10px;font-weight:700;font-size:0.95rem;flex-shrink:0;'
+        f'<div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:12px;'
+        f'padding:1.4rem;margin-bottom:0.7rem;transition:border-color 0.2s;">'
+        # Header row
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">'
+        f'<p style="font-size:1.02rem;font-weight:600;color:{TEXT_PRIMARY};margin:0;line-height:1.4;flex:1;margin-right:1rem;'
+        f'font-family:Inter,Arial,sans-serif;">{title_html}</p>'
+        f'<span style="display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;'
+        f'border-radius:8px;font-weight:700;font-size:0.85rem;flex-shrink:0;'
         f'background:{score_bg};color:{score_fg};">{score}</span>'
         f'</div>'
-        f'<div style="display:flex;gap:1rem;margin-bottom:0.5rem;flex-wrap:wrap;">'
-        f'<span style="font-size:0.75rem;padding:0.2rem 0.6rem;border-radius:6px;'
-        f'font-weight:500;background:#1e3a5f;color:#93c5fd;">{source}</span>'
+        # Meta row
+        f'<div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">'
+        f'<span style="font-size:0.73rem;padding:0.15rem 0.5rem;border-radius:5px;'
+        f'font-weight:500;background:rgba(191,243,85,0.12);color:{HL_LIME};">{source}</span>'
+        f'{status_html}'
         f'{date_html}'
         f'</div>'
+        # Key points
         f'{kp_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 
-# -- Main dashboard ------------------------------------------------------------
+# =============================================================================
+# Report generator (HTML, branded)
+# =============================================================================
+def _generate_report(df: pd.DataFrame) -> bytes:
+    now = datetime.now().strftime("%d/%m/%Y")
+
+    if "data_raccolta" in df.columns and not df["data_raccolta"].isna().all():
+        df = df.copy()
+        df["week"] = df["data_raccolta"].dt.isocalendar().week.astype(str) + "/" + df["data_raccolta"].dt.year.astype(str)
+        weeks = df.groupby("week", sort=False)
+    else:
+        weeks = [("Tutte", df)]
+
+    rows_html = ""
+    for week_label, group in weeks:
+        rows_html += f'<tr><td colspan="4" style="background:#111111;color:{HL_LIME};font-weight:700;padding:10px 14px;font-size:13px;font-family:Arial,sans-serif;letter-spacing:0.5px;">SETTIMANA {week_label}</td></tr>'
+        for _, row in group.iterrows():
+            score = int(row.get("importance_score", 5))
+            title = str(row.get("title", ""))
+            source = str(row.get("source", ""))
+            kp = str(row.get("key_points", "")).replace("\\n", "\n")
+            link = str(row.get("link", ""))
+
+            kp_lines = [l.strip() for l in kp.split("\n") if l.strip()]
+            kp_formatted = "<br>".join(kp_lines) if kp_lines else "-"
+
+            title_cell = f'<a href="{link}" style="color:{HL_LIME};text-decoration:none;">{title}</a>' if link and link.startswith("http") else title
+
+            if score >= 8:
+                badge_bg, badge_fg = HL_DARK_GREEN, HL_LIME
+            elif score >= 5:
+                badge_bg, badge_fg = "#1A3530", HL_TEAL
+            else:
+                badge_bg, badge_fg = "#2A2520", HL_TAUPE
+
+            rows_html += (
+                f'<tr>'
+                f'<td style="padding:8px 12px;border-bottom:1px solid #3A5518;color:{HL_TAUPE};font-weight:600;font-family:Arial,sans-serif;">{title_cell}</td>'
+                f'<td style="padding:8px 12px;border-bottom:1px solid #3A5518;color:{TEXT_MUTED};text-align:center;font-size:12px;">{source}</td>'
+                f'<td style="padding:8px 12px;border-bottom:1px solid #3A5518;text-align:center;">'
+                f'<span style="background:{badge_bg};color:{badge_fg};padding:3px 10px;border-radius:10px;font-weight:700;font-size:12px;">{score}</span></td>'
+                f'<td style="padding:8px 12px;border-bottom:1px solid #3A5518;color:{HL_TAUPE};font-size:12px;line-height:1.6;font-family:Georgia,serif;">{kp_formatted}</td>'
+                f'</tr>'
+            )
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>M&amp;A Sport Italia Report - Hogan Lovells - {now}</title>
+<style>
+    body {{ font-family: Arial, sans-serif; background: #0A0A0A; color: {TEXT_PRIMARY}; margin: 0; padding: 30px; }}
+    .header {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 3px solid {HL_LIME}; }}
+    .header h1 {{ font-size: 20px; margin: 0; color: {TEXT_PRIMARY}; font-family: Arial, sans-serif; }}
+    .header .sub {{ color: {HL_LIME}; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }}
+    .header .date {{ color: {TEXT_MUTED}; font-size: 13px; }}
+    .header .logo {{ width: 56px; height: 62px; background: {HL_LIME}; border-radius: 4px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; padding: 4px 6px; font-family: Georgia, serif; font-weight: bold; font-size: 13px; line-height: 1.3; color: {HL_DARK_GREEN}; }}
+    .stats {{ display: flex; gap: 16px; margin-bottom: 25px; }}
+    .stat {{ background: {BG_CARD}; border: 1px solid {BORDER}; border-radius: 10px; padding: 15px 20px; text-align: center; flex: 1; }}
+    .stat .val {{ font-size: 26px; font-weight: 700; color: {HL_LIME}; }}
+    .stat .lbl {{ font-size: 10px; color: {TEXT_MUTED}; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }}
+    table {{ width: 100%; border-collapse: collapse; background: {BG_CARD}; border-radius: 10px; overflow: hidden; }}
+    th {{ background: {BG_PRIMARY}; color: {TEXT_MUTED}; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 10px 12px; text-align: left; }}
+    a {{ color: {HL_LIME}; text-decoration: none; }}
+    .footer {{ margin-top: 30px; padding-top: 15px; border-top: 1px solid {BORDER}; color: {TEXT_MUTED}; font-size: 11px; text-align: center; }}
+</style>
+</head>
+<body>
+<div class="header">
+    <div>
+        <h1>M&amp;A Sport Italia</h1>
+        <div class="sub">Hogan Lovells - Vital for Change</div>
+        <span class="date">Report generato il {now}</span>
+    </div>
+    <div class="logo">HL</div>
+</div>
+<div class="stats">
+    <div class="stat"><div class="val">{len(df)}</div><div class="lbl">Notizie</div></div>
+    <div class="stat"><div class="val">{df["source"].nunique() if "source" in df.columns else 0}</div><div class="lbl">Fonti</div></div>
+    <div class="stat"><div class="val">{f'{df["importance_score"].mean():.1f}' if "importance_score" in df.columns and len(df) > 0 else "N/A"}</div><div class="lbl">Score Medio</div></div>
+</div>
+<table>
+<thead><tr><th>Notizia</th><th>Fonte</th><th>Score</th><th>Punti chiave</th></tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+<div class="footer">
+    Hogan Lovells | M&amp;A Sport Italia Intelligence | Documento riservato | {now}
+</div>
+</body>
+</html>"""
+    return html.encode("utf-8")
+
+
+# =============================================================================
+# Mergermarket CSV import
+# =============================================================================
+def _mergermarket_import_section():
+    """Sezione per import manuale di dati esportati da Mergermarket."""
+    st.markdown(
+        f'<div style="color:{TEXT_PRIMARY};font-size:1.2rem;font-weight:600;'
+        f'margin:1rem 0 0.5rem 0;padding-bottom:0.4rem;border-bottom:2px solid {HL_TEAL};">'
+        f'Import Mergermarket</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<p style="color:{TEXT_MUTED};font-size:0.88rem;margin-bottom:1rem;font-family:Georgia,serif;">'
+        f'Esporta i dati dal tuo account Mergermarket in formato CSV, poi caricali qui. '
+        f'Il file deve contenere almeno le colonne: <strong style="color:{HL_LIME};">Title</strong>, '
+        f'<strong style="color:{HL_LIME};">Link</strong> (opzionale), '
+        f'<strong style="color:{HL_LIME};">Date</strong> (opzionale).</p>',
+        unsafe_allow_html=True,
+    )
+
+    uploaded = st.file_uploader(
+        "Carica CSV Mergermarket",
+        type=["csv"],
+        key="mm_upload",
+    )
+
+    if uploaded is not None:
+        try:
+            content = uploaded.getvalue().decode("utf-8")
+            reader = csv.DictReader(io.StringIO(content))
+            rows = list(reader)
+
+            if rows:
+                st.success(f"Caricati {len(rows)} record da Mergermarket.")
+
+                # Show preview
+                preview_df = pd.DataFrame(rows).head(5)
+                st.dataframe(preview_df, use_container_width=True)
+
+                if st.button("Salva in archivio", key="mm_save"):
+                    from storage.gsheets import save_to_sheets
+                    articles = []
+                    for r in rows:
+                        title = r.get("Title", r.get("title", r.get("Headline", "")))
+                        if not title:
+                            continue
+                        articles.append({
+                            "title": title,
+                            "link": r.get("Link", r.get("link", r.get("URL", ""))),
+                            "source": "Mergermarket (import)",
+                            "published": r.get("Date", r.get("date", r.get("Published", ""))),
+                            "summary": r.get("Summary", r.get("summary", r.get("Snippet", "")))[:500],
+                            "importance_score": 7,
+                            "key_points": f"- Fonte: Mergermarket\n- {title}",
+                        })
+                    if articles:
+                        count = save_to_sheets(articles)
+                        st.success(f"Salvati {count} articoli Mergermarket nell'archivio.")
+                        st.cache_data.clear()
+            else:
+                st.warning("Il file CSV sembra vuoto.")
+        except Exception as e:
+            st.error(f"Errore lettura CSV: {e}")
+
+
+# =============================================================================
+# Main dashboard
+# =============================================================================
 def _render_dashboard():
-    # Sidebar
     with st.sidebar:
-        st.markdown("### Impostazioni")
+        st.markdown(f"### Impostazioni")
         if st.button("Ricarica dati", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
@@ -417,17 +491,31 @@ def _render_dashboard():
             st.session_state.authenticated = False
             st.rerun()
 
-    # Load data
     df = _load_data()
 
     # Hero header
     user = st.session_state.get("user_email", "")
     user_display = user.split("@")[0].replace(".", " ").title() if "@" in user else user
+
     st.markdown(f"""
-    <div class="hero-header">
-        <h1>M&A Sport Italia</h1>
-        <p class="subtitle">Intelligence settimanale su operazioni M&A nel mondo dello sport italiano
-        {"&nbsp;&middot;&nbsp;" + user_display if user_display and user_display != "Password User" else ""}</p>
+    <div style="background:{BG_CARD};
+         border:1px solid {BORDER};border-radius:14px;padding:1.6rem 2.2rem;margin-bottom:1.3rem;
+         display:flex;align-items:center;justify-content:space-between;">
+        <div>
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+                {HL_LOGO_SMALL}
+                <h1 style="font-size:1.6rem !important;font-weight:700 !important;margin:0 !important;
+                    letter-spacing:-0.5px;font-family:Inter,Arial,sans-serif !important;">M&A Sport Italia</h1>
+            </div>
+            <p style="color:{TEXT_MUTED};font-size:0.88rem;margin:0;font-family:Georgia,serif;">
+                Vital intelligence. Driving M&amp;A insight in Italian sport.
+                {"&nbsp;&middot;&nbsp;" + user_display if user_display and user_display != "Password User" else ""}</p>
+        </div>
+        <div style="text-align:right;">
+            <span style="color:{HL_LIME};font-size:0.7rem;letter-spacing:2px;text-transform:uppercase;
+                   font-weight:600;">Hogan Lovells</span><br>
+            <span style="color:{TEXT_MUTED};font-size:0.72rem;">Move fast. Lead change.</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -435,18 +523,15 @@ def _render_dashboard():
         st.warning("Nessun dato disponibile. Esegui `python main.py` per la prima raccolta.")
         return
 
-    # -- Sidebar filters -------------------------------------------------------
+    # Sidebar filters
     with st.sidebar:
         st.markdown("### Filtri")
-
         sources = sorted(df["source"].dropna().unique()) if "source" in df.columns else []
         selected_sources = st.multiselect("Fonti", sources, default=sources)
-
         if "importance_score" in df.columns:
-            min_score = st.slider("Score minimo", 1, 10, 6)
+            min_score = st.slider("Score minimo", 1, 10, 5)
         else:
             min_score = 1
-
         if "data_raccolta" in df.columns and not df["data_raccolta"].isna().all():
             min_date = df["data_raccolta"].min().date()
             max_date = df["data_raccolta"].max().date()
@@ -467,55 +552,49 @@ def _render_dashboard():
         mask &= (df["data_raccolta"].dt.date >= date_range[0]) & (
             df["data_raccolta"].dt.date <= date_range[1]
         )
-
     filtered = df[mask].copy()
     if "importance_score" in filtered.columns:
         filtered = filtered.sort_values("importance_score", ascending=False)
 
-    # -- KPI cards -------------------------------------------------------------
+    # KPI cards (lime green values on dark green cards)
     n_total = len(filtered)
     n_sources = filtered["source"].nunique() if "source" in filtered.columns else 0
-    avg_score = (
-        filtered["importance_score"].mean()
-        if "importance_score" in filtered.columns and n_total > 0
-        else 0
-    )
-    n_high = (
-        len(filtered[filtered["importance_score"] >= 8])
-        if "importance_score" in filtered.columns
-        else 0
-    )
+    avg_score = filtered["importance_score"].mean() if "importance_score" in filtered.columns and n_total > 0 else 0
+    n_high = len(filtered[filtered["importance_score"] >= 8]) if "importance_score" in filtered.columns else 0
+    n_rumour = len(filtered[filtered["importance_score"] < 5]) if "importance_score" in filtered.columns else 0
 
     st.markdown(f"""
-    <div class="kpi-row">
-        <div class="kpi-card">
-            <div class="kpi-value">{n_total}</div>
-            <div class="kpi-label">Notizie totali</div>
+    <div style="display:flex;gap:0.8rem;margin-bottom:1.3rem;">
+        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
+            <div style="font-size:2rem;font-weight:700;color:{HL_LIME};line-height:1;">{n_total}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Notizie</div>
         </div>
-        <div class="kpi-card gold">
-            <div class="kpi-value">{n_high}</div>
-            <div class="kpi-label">Alta rilevanza</div>
+        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
+            <div style="font-size:2rem;font-weight:700;color:{HL_LIME};line-height:1;">{n_high}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Deal confermati</div>
         </div>
-        <div class="kpi-card green">
-            <div class="kpi-value">{avg_score:.1f}</div>
-            <div class="kpi-label">Score medio</div>
+        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
+            <div style="font-size:2rem;font-weight:700;color:{HL_TEAL};line-height:1;">{avg_score:.1f}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Score medio</div>
         </div>
-        <div class="kpi-card purple">
-            <div class="kpi-value">{n_sources}</div>
-            <div class="kpi-label">Fonti</div>
+        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
+            <div style="font-size:2rem;font-weight:700;color:{HL_LILAC};line-height:1;">{n_rumour}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Rumour</div>
+        </div>
+        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
+            <div style="font-size:2rem;font-weight:700;color:{HL_TAUPE};line-height:1;">{n_sources}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Fonti</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # -- Tabs ------------------------------------------------------------------
-    tab_news, tab_archive = st.tabs(["Notizie della settimana", "Archivio completo"])
+    # Tabs
+    tab_news, tab_archive, tab_report, tab_mm = st.tabs([
+        "Notizie della settimana", "Archivio completo", "Genera Report", "Import Mergermarket"
+    ])
 
     with tab_news:
-        # Search
-        search = st.text_input(
-            "Cerca", placeholder="Cerca per titolo, fonte...",
-            label_visibility="collapsed",
-        )
+        search = st.text_input("Cerca", placeholder="Cerca per titolo, fonte...", label_visibility="collapsed")
         if search and "title" in filtered.columns:
             search_mask = (
                 filtered["title"].str.contains(search, case=False, na=False)
@@ -525,14 +604,11 @@ def _render_dashboard():
         else:
             filtered_search = filtered
 
-        # Last week only
         if "data_raccolta" in filtered_search.columns:
             latest_date = filtered_search["data_raccolta"].max()
             if pd.notna(latest_date):
                 week_ago = latest_date - pd.Timedelta(days=7)
-                weekly = filtered_search[
-                    filtered_search["data_raccolta"] >= week_ago
-                ]
+                weekly = filtered_search[filtered_search["data_raccolta"] >= week_ago]
             else:
                 weekly = filtered_search
         else:
@@ -542,7 +618,9 @@ def _render_dashboard():
             st.info("Nessuna notizia corrisponde ai filtri selezionati.")
         else:
             st.markdown(
-                f'<div class="section-header">'
+                f'<div style="color:{TEXT_PRIMARY};font-size:1.2rem;font-weight:600;'
+                f'margin:1rem 0;padding-bottom:0.4rem;border-bottom:2px solid {HL_LIME};'
+                f'font-family:Inter,Arial,sans-serif;">'
                 f'{len(weekly)} notizie questa settimana</div>',
                 unsafe_allow_html=True,
             )
@@ -550,40 +628,87 @@ def _render_dashboard():
                 _render_news_card(row)
 
     with tab_archive:
-        search_archive = st.text_input(
-            "Cerca nell'archivio",
-            placeholder="Cerca per titolo, fonte...",
-            key="search_archive",
-        )
+        search_archive = st.text_input("Cerca nell'archivio", placeholder="Cerca per titolo, fonte...", key="search_archive")
         archive = filtered.copy()
         if search_archive and "title" in archive.columns:
             archive = archive[
                 archive["title"].str.contains(search_archive, case=False, na=False)
                 | archive["source"].str.contains(search_archive, case=False, na=False)
             ]
-
         if archive.empty:
             st.info("Archivio vuoto.")
         else:
             st.markdown(
-                f'<div class="section-header">'
+                f'<div style="color:{TEXT_PRIMARY};font-size:1.2rem;font-weight:600;'
+                f'margin:1rem 0;padding-bottom:0.4rem;border-bottom:2px solid {HL_LIME};'
+                f'font-family:Inter,Arial,sans-serif;">'
                 f'{len(archive)} notizie in archivio</div>',
                 unsafe_allow_html=True,
             )
             for _, row in archive.iterrows():
                 _render_news_card(row)
 
-    # -- Export ----------------------------------------------------------------
-    st.divider()
-    col_dl1, col_dl2, _ = st.columns([1, 1, 3])
-    with col_dl1:
-        csv = filtered.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Scarica CSV", csv, "ma_sport_italia.csv", "text/csv",
-            use_container_width=True,
+    with tab_report:
+        st.markdown(
+            f'<div style="color:{TEXT_PRIMARY};font-size:1.2rem;font-weight:600;'
+            f'margin:1rem 0 0.5rem 0;padding-bottom:0.4rem;border-bottom:2px solid {HL_LIME};">'
+            f'Genera Report M&amp;A</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<p style="color:{TEXT_MUTED};font-size:0.88rem;margin-bottom:1rem;font-family:Georgia,serif;">'
+            f'Genera un report HTML professionale branded Hogan Lovells, raggruppato per settimana. '
+            f'Aprilo nel browser e stampa come PDF per la distribuzione interna.</p>',
+            unsafe_allow_html=True,
         )
 
+        report_scope = st.radio(
+            "Periodo del report",
+            ["Ultima settimana", "Ultimo mese", "Tutto l'archivio"],
+            horizontal=True,
+        )
 
-# -- Main ----------------------------------------------------------------------
+        if "data_raccolta" in filtered.columns:
+            latest = filtered["data_raccolta"].max()
+            if pd.notna(latest):
+                if report_scope == "Ultima settimana":
+                    report_df = filtered[filtered["data_raccolta"] >= latest - pd.Timedelta(days=7)]
+                elif report_scope == "Ultimo mese":
+                    report_df = filtered[filtered["data_raccolta"] >= latest - pd.Timedelta(days=30)]
+                else:
+                    report_df = filtered
+            else:
+                report_df = filtered
+        else:
+            report_df = filtered
+
+        st.markdown(
+            f'<p style="color:{TEXT_MUTED};font-size:0.85rem;">'
+            f'Il report includera <strong style="color:{HL_LIME};">{len(report_df)}</strong> notizie.</p>',
+            unsafe_allow_html=True,
+        )
+
+        if not report_df.empty:
+            report_html = _generate_report(report_df)
+            now_str = datetime.now().strftime("%Y%m%d")
+            col1, col2, _ = st.columns([1, 1, 3])
+            with col1:
+                st.download_button("Scarica Report HTML", report_html,
+                    f"HL_MA_Sport_Italia_{now_str}.html", "text/html", use_container_width=True)
+            with col2:
+                csv_data = report_df.to_csv(index=False).encode("utf-8")
+                st.download_button("Scarica CSV", csv_data,
+                    f"HL_MA_Sport_Italia_{now_str}.csv", "text/csv", use_container_width=True)
+
+    with tab_mm:
+        _mergermarket_import_section()
+
+
+# =============================================================================
+# Entry point
+# =============================================================================
+if st.query_params.get("token") == "preview":
+    st.session_state.authenticated = True
+    st.session_state.user_email = "alice.bussacchini@hoganlovells.com"
 if _check_auth():
     _render_dashboard()
