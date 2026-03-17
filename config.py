@@ -17,22 +17,31 @@ RSS_FEEDS = {
     "Corriere dello Sport": "https://www.corrieredellosport.it/rss/home.xml",
     "Calcio e Finanza": "https://www.calcioefinanza.it/feed/",
     "Tuttosport": "https://www.tuttosport.com/rss/home.xml",
-    # --- Testate economico-finanziarie ---
+    "Football Italia": "https://football-italia.net/feed/",
+    # --- Testate economico-finanziarie italiane ---
     "Il Sole 24 Ore - Sport": "https://www.ilsole24ore.com/rss/sport.xml",
     "Il Sole 24 Ore - Finanza": "https://www.ilsole24ore.com/rss/finanza.xml",
     "Milano Finanza": "https://www.milanofinanza.it/rss/",
     "ANSA Economia": "https://www.ansa.it/sito/notizie/economia/economia_rss.xml",
     "ANSA Sport": "https://www.ansa.it/sito/notizie/sport/sport_rss.xml",
-    "Reuters Italy": "https://www.reuters.com/rssFeed/sportsNews",
+    "La Repubblica Economia": "https://www.repubblica.it/rss/economia/rss2.0.xml",
+    "Corriere Economia": "https://xml2.corriereobjects.it/rss/economia.xml",
     # --- Sport business internazionali ---
     "SportBusiness": "https://www.sportbusiness.com/feed/",
     "Sport Business Journal": "https://www.sportsbusinessjournal.com/rss/feed",
-    "Football Italia": "https://football-italia.net/feed/",
+    "SportsPro Media": "https://www.sportspromedia.com/feed/",
+    "Sportico": "https://www.sportico.com/feed/",
+    "Front Office Sports": "https://frontofficesports.com/feed/",
     "Inside Sport Finance": "https://www.insideworldfootball.com/feed/",
+    "Reuters Sports": "https://www.reuters.com/rssFeed/sportsNews",
     # --- Private equity & deals ---
     "Private Equity Wire": "https://www.privateequitywire.co.uk/rss.xml",
     "PE Hub": "https://www.pehub.com/feed/",
     "Pitchbook News": "https://pitchbook.com/feed",
+    "BeBeez": "https://bebeez.it/feed/",
+    # --- Wire service (comunicati stampa deal) ---
+    "GlobeNewswire Sport": "https://www.globenewswire.com/RssFeed/subjectcode/14-Sport/feedTitle/GlobeNewswire%20-%20Sport",
+    "PR Newswire Sport": "https://www.prnewswire.com/rss/sports-news/sport-news.rss",
 }
 
 # -- Scraping ------------------------------------------------------------------
@@ -71,6 +80,17 @@ GOOGLE_NEWS_QUERIES = [
     "sport investment fund Italy",
     "ricapitalizzazione club sportivo Italia",
     "IPO societa sportiva",
+    # --- Nuove query per copertura piu ampia ---
+    "advisor mandato cessione club calcio",
+    "due diligence societa sportiva Italia",
+    "CVC capital partners calcio Serie A",
+    "RedBird sport investimento Italia",
+    "Oaktree Inter Milan",
+    "fondo sovrano calcio Europa",
+    "basket pallavolo acquisizione Italia",
+    "Lega Serie A diritti commerciali investitore",
+    "sport tech startup Italia investimento",
+    "infrastrutture sportive Italia PPP concessione",
 ]
 
 # -- Google Sheets -------------------------------------------------------------
@@ -110,8 +130,16 @@ MA_KEYWORDS = [
     # --- Asset sportivi ---
     "diritti tv", "stadio", "naming rights", "media rights",
     "broadcast", "partnership strategica", "sponsor tecnico",
+    # --- Sport non-calcio ---
+    "basket", "pallavolo", "rugby", "ciclismo", "motorsport",
+    "Formula 1", "MotoGP", "pallacanestro", "tennis",
+    # --- Infrastrutture ---
+    "project finance stadio", "concessione impianto sportivo",
+    "PPP sport", "ristrutturazione stadio",
     # --- Inglese (fonti internazionali) ---
     "acquisition", "disposal", "buyout", "stake",
     "ownership", "deal", "transaction", "bid",
     "football club", "sport franchise", "equity",
+    "sovereign wealth fund", "minority stake",
+    "Serie A investment", "club valuation",
 ]

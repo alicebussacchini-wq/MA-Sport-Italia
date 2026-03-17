@@ -16,19 +16,33 @@ logger = logging.getLogger(__name__)
 
 # Query mirate per fonti autorevoli sport-business
 SPORT_BIZ_QUERIES = [
-    # Bloomberg / FT / Reuters — deal sport
+    # Bloomberg / FT / Reuters - deal sport
     "site:bloomberg.com football club acquisition OR investment OR deal",
     "site:ft.com sport M&A deal OR acquisition Italy",
     "site:reuters.com Serie A club ownership OR investor OR deal",
-    # Sky Sport — sezione business
+    # Sky Sport - sezione business
     "site:sport.sky.it cessione OR acquisizione OR proprietario OR investitore",
-    # Calcio e Finanza — articoli piu recenti
+    # Calcio e Finanza - articoli piu recenti
     "site:calcioefinanza.it acquisizione OR cessione OR fondo OR investitore",
     # Sport Business internazionale
     "SportBusiness football acquisition OR investment Italy 2025 2026",
     "football club deal investor private equity Europe Serie A",
     # Gazzetta sezione economia sport
     "site:gazzetta.it cessione OR acquisizione OR proprietario societa",
+    # --- NUOVE FONTI AUTOREVOLI ---
+    # Sportico / Front Office Sports
+    "site:sportico.com football deal OR acquisition OR investment OR ownership",
+    "site:frontofficesports.com Serie A OR Italy OR football acquisition OR deal",
+    # SportsPro Media
+    "site:sportspromedia.com Italy OR Serie A deal OR investment OR acquisition",
+    # The Athletic / ESPN business
+    "site:theathletic.com ownership OR sale OR acquisition Serie A Italy",
+    "site:espn.com football club sale OR ownership OR acquisition Italy",
+    # Law firm deal announcements (Hogan Lovells competitors)
+    "sport M&A deal advisor law firm Italy 2025 2026",
+    # Sovereign wealth funds + sport
+    "sovereign wealth fund football club Europe investment OR acquisition",
+    "PIF Qatar Investment football Europe deal OR stake",
 ]
 
 

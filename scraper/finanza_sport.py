@@ -25,12 +25,24 @@ FINANZA_SPORT_QUERIES = [
     "site:ilfattoquotidiano.it calcio cessione OR vendita OR proprietario OR fondo",
     # Corriere della Sera Economia
     "site:corriere.it economia sport club OR societa acquisizione OR cessione",
-    # ANSA — operazioni societarie sport
+    # ANSA - operazioni societarie sport
     "site:ansa.it sport calcio cessione OR acquisizione OR investitore OR fondo",
-    # BeBeez (PE/VC italiano)
-    "site:bebeez.it sport OR calcio OR stadio",
+    # BeBeez (PE/VC italiano - molto autorevole su deal)
+    "site:bebeez.it sport OR calcio OR stadio OR Serie A",
+    "site:bebeez.it private equity sport OR acquisizione OR investimento",
     # Italia Oggi
     "site:italiaoggi.it calcio OR sport cessione OR acquisizione OR fondo",
+    # --- NUOVE FONTI ITALIANE ---
+    # La Stampa / Il Messaggero
+    "site:lastampa.it calcio cessione OR acquisizione OR investitore OR fondo",
+    "site:ilmessaggero.it sport calcio cessione OR proprietario OR investitore",
+    # Startupitalia / EconomyUp (tech + sport)
+    "site:startupitalia.eu sport tech OR stadio OR investimento",
+    # Diritto bancario / Diritto24 (aspetto legale deal)
+    "site:diritto24.ilsole24ore.com sport OR calcio OR stadio",
+    # Deal tracker italiani
+    "Italia sport M&A closing OR signing advisor 2025 2026",
+    "cessione quote club calcio Serie B Serie C Italia",
 ]
 
 
