@@ -27,9 +27,11 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create credentials file
+        env:
+          GCP_CREDS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         run: |
           mkdir -p credentials
-          echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > credentials/service_account.json
+          printf '%s' "$GCP_CREDS" > credentials/service_account.json
 
       - name: Run scraping pipeline
         env:
