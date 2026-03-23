@@ -54,16 +54,23 @@ def _get_client() -> gspread.Client:
 
     # 2) JSON inline nella variabile d'ambiente
     creds_val = GOOGLE_SHEETS_CREDENTIALS_JSON
-    if creds_val.strip().startswith("{"):
+    if creds_val and creds_val.strip().startswith("{"):
         creds_info = json.loads(creds_val)
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
         logger.info("Credenziali caricate da JSON inline")
         return gspread.authorize(creds)
 
-    # 3) File locale
-    creds = Credentials.from_service_account_file(creds_val, scopes=SCOPES)
-    logger.info("Credenziali caricate da file: %s", creds_val)
-    return gspread.authorize(creds)
+    # 3) File locale (solo se esiste)
+    if creds_val and Path(creds_val).exists():
+        creds = Credentials.from_service_account_file(creds_val, scopes=SCOPES)
+        logger.info("Credenziali caricate da file: %s", creds_val)
+        return gspread.authorize(creds)
+
+    raise FileNotFoundError(
+        f"Nessuna credenziale Google trovata. Configura st.secrets, "
+        f"la variabile GOOGLE_SHEETS_CREDENTIALS_JSON con JSON inline, "
+        f"oppure il file {creds_val}"
+    )
 
 
 def _get_or_create_sheet(client: gspread.Client) -> gspread.Worksheet:
