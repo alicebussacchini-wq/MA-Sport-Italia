@@ -26,17 +26,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Create credentials file
-        env:
-          GCP_CREDS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-        run: |
-          mkdir -p credentials
-          printf '%s' "$GCP_CREDS" > credentials/service_account.json
-
       - name: Run scraping pipeline
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
-          GOOGLE_SHEETS_CREDENTIALS_JSON: credentials/service_account.json
+          GOOGLE_SHEETS_CREDENTIALS_JSON: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
           GOOGLE_SHEETS_SPREADSHEET_NAME: ${{ vars.GOOGLE_SHEETS_SPREADSHEET_NAME || 'MA_Sport_Italia' }}
         run: python main.py
