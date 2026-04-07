@@ -2,17 +2,31 @@
 
 Sostituisce finanza_sport.py e sport_business.py che usavano SerpApi.
 Combina query site: da entrambi i moduli in un unico scraper RSS.
+Filtra solo notizie recenti (ultimi 30 giorni).
 """
 
 from __future__ import annotations
 
 import logging
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import feedparser
 
 logger = logging.getLogger(__name__)
+
+MAX_AGE_DAYS = 30
+
+
+def _is_recent(entry, cutoff: datetime) -> bool:
+    """Verifica che l'articolo sia recente (dopo cutoff)."""
+    if hasattr(entry, "published_parsed") and entry.published_parsed:
+        try:
+            pub_dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+            return pub_dt >= cutoff
+        except Exception:
+            pass
+    return True
 
 GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search"
 
@@ -49,12 +63,14 @@ def collect_site_news() -> list[dict]:
     """
     articles: list[dict] = []
     seen_links: set[str] = set()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
 
     for query in SITE_QUERIES:
         logger.info("Site News RSS query: %s", query)
         try:
+            full_query = f"{query} when:30d"
             params = urllib.parse.urlencode({
-                "q": query,
+                "q": full_query,
                 "hl": "it",
                 "gl": "IT",
                 "ceid": "IT:it",
@@ -65,6 +81,8 @@ def collect_site_news() -> list[dict]:
             for entry in feed.entries:
                 link = entry.get("link", "")
                 if link in seen_links:
+                    continue
+                if not _is_recent(entry, cutoff):
                     continue
                 seen_links.add(link)
 

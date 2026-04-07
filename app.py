@@ -819,7 +819,6 @@ def _render_dashboard():
 
     # KPI cards — interactive: click to filter by status
     n_total = len(filtered)
-    n_sources = filtered["source"].nunique() if "source" in filtered.columns else 0
     n_confirmed = len(filtered[filtered["deal_status"] == "Confermato"]) if "deal_status" in filtered.columns else 0
     n_trattativa = len(filtered[filtered["deal_status"] == "In Trattativa"]) if "deal_status" in filtered.columns else 0
     n_rumour = len(filtered[filtered["deal_status"] == "Rumour"]) if "deal_status" in filtered.columns else 0
@@ -828,6 +827,11 @@ def _render_dashboard():
     # Active filter from KPI click
     if "kpi_filter" not in st.session_state:
         st.session_state["kpi_filter"] = None
+
+    def _set_kpi(val):
+        st.session_state["kpi_filter"] = val
+
+    active = st.session_state["kpi_filter"]
 
     kpi_cols = st.columns(5)
     kpi_defs = [
@@ -839,20 +843,27 @@ def _render_dashboard():
     ]
     for col, (lbl, count, color, status_val) in zip(kpi_cols, kpi_defs):
         with col:
-            is_active = st.session_state["kpi_filter"] == status_val
+            is_active = active == status_val
             border_color = color if is_active else BORDER
-            border_width = "2px" if is_active else "1px"
+            bw = "2px" if is_active else "1px"
             st.markdown(
-                f'<div style="background:{BG_CARD};border:{border_width} solid {border_color};'
-                f'border-radius:10px;padding:0.8rem 0.5rem;text-align:center;">'
+                f'<div style="background:{BG_CARD};border:{bw} solid {border_color};'
+                f'border-radius:10px;padding:0.8rem 0.5rem;text-align:center;'
+                f'margin-bottom:0.3rem;">'
                 f'<div style="font-size:1.8rem;font-weight:700;color:{color};line-height:1;">{count}</div>'
                 f'<div style="font-size:0.65rem;color:{TEXT_MUTED};text-transform:uppercase;'
                 f'letter-spacing:1px;margin-top:0.3rem;">{lbl}</div></div>',
                 unsafe_allow_html=True,
             )
-            if st.button(lbl, key=f"kpi_{lbl}", use_container_width=True):
-                st.session_state["kpi_filter"] = status_val
-                st.rerun()
+            btn_type = "primary" if is_active else "secondary"
+            st.button(
+                f"Filtra {lbl}" if status_val else "Mostra tutti",
+                key=f"kpi_{lbl}",
+                use_container_width=True,
+                type=btn_type,
+                on_click=_set_kpi,
+                args=(status_val,),
+            )
 
     # Apply KPI filter
     if st.session_state["kpi_filter"]:

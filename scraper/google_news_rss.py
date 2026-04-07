@@ -1,13 +1,14 @@
 """Raccoglie notizie da Google News tramite feed RSS (gratis, no API key).
 
 Sostituisce la versione SerpApi — stessi risultati, zero crediti.
+Filtra solo notizie recenti (ultimi 30 giorni).
 """
 
 from __future__ import annotations
 
 import logging
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import feedparser
 
@@ -16,6 +17,21 @@ from config import GOOGLE_NEWS_QUERIES
 logger = logging.getLogger(__name__)
 
 GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search"
+
+# Solo notizie degli ultimi 30 giorni
+MAX_AGE_DAYS = 30
+
+
+def _is_recent(entry, cutoff: datetime) -> bool:
+    """Verifica che l'articolo sia recente (dopo cutoff)."""
+    if hasattr(entry, "published_parsed") and entry.published_parsed:
+        try:
+            pub_dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+            return pub_dt >= cutoff
+        except Exception:
+            pass
+    # Se non riesce a parsare la data, includi (meglio che perdere)
+    return True
 
 
 def collect_google_news() -> list[dict]:
@@ -26,12 +42,15 @@ def collect_google_news() -> list[dict]:
     """
     articles: list[dict] = []
     seen_links: set[str] = set()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
 
     for query in GOOGLE_NEWS_QUERIES:
         logger.info("Google News RSS query: %s", query)
         try:
+            # "when:30d" limita i risultati agli ultimi 30 giorni
+            full_query = f"{query} when:30d"
             params = urllib.parse.urlencode({
-                "q": query,
+                "q": full_query,
                 "hl": "it",
                 "gl": "IT",
                 "ceid": "IT:it",
@@ -42,6 +61,9 @@ def collect_google_news() -> list[dict]:
             for entry in feed.entries:
                 link = entry.get("link", "")
                 if link in seen_links:
+                    continue
+                # Filtra articoli troppo vecchi
+                if not _is_recent(entry, cutoff):
                     continue
                 seen_links.add(link)
 
