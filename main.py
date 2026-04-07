@@ -9,9 +9,7 @@ from scraper import (
     collect_rss,
     collect_google_news,
     scrape_calcioefinanza,
-    collect_mergermarket,
-    collect_sport_business,
-    collect_finanza_sport,
+    collect_site_news,
 )
 from processing import filter_with_claude, deduplicate
 from storage import save_to_sheets
@@ -30,43 +28,33 @@ def run_pipeline():
     logger.info("INIZIO PIPELINE M&A Sport Italia")
     logger.info("=" * 60)
 
-    # 1. Raccolta da tutte le fonti
+    # 1. Raccolta da tutte le fonti (100% gratis, zero SerpApi)
     logger.info("-- FASE 1: Raccolta notizie --")
 
     # Fonti RSS (testate italiane + internazionali + PE)
     rss_articles = collect_rss()
 
-    # Google News (query M&A sport mirate)
+    # Google News RSS (query M&A sport mirate — gratis)
     google_articles = collect_google_news()
 
     # Scraping diretto Calcio e Finanza
     scraped_articles = scrape_calcioefinanza()
 
-    # Mergermarket (contenuti indicizzati su Google)
-    mm_articles = collect_mergermarket()
-
-    # Sport Business internazionali (Bloomberg, FT, Reuters, Sky, SportBusiness)
-    sb_articles = collect_sport_business()
-
-    # Stampa finanziaria italiana (MF, ANSA Economia, BeBeez, Repubblica)
-    fin_articles = collect_finanza_sport()
+    # Fonti site-specific via Google News RSS (Bloomberg, FT, Reuters, ecc.)
+    site_articles = collect_site_news()
 
     all_articles = (
         rss_articles
         + google_articles
         + scraped_articles
-        + mm_articles
-        + sb_articles
-        + fin_articles
+        + site_articles
     )
 
     logger.info("Totale articoli raccolti: %d", len(all_articles))
     logger.info("  RSS:              %d", len(rss_articles))
     logger.info("  Google News:      %d", len(google_articles))
     logger.info("  Calcio e Finanza: %d", len(scraped_articles))
-    logger.info("  Mergermarket:     %d", len(mm_articles))
-    logger.info("  Sport Business:   %d", len(sb_articles))
-    logger.info("  Finanza Sport:    %d", len(fin_articles))
+    logger.info("  Site News:        %d", len(site_articles))
 
     if not all_articles:
         logger.warning("Nessun articolo raccolto. Pipeline terminata.")

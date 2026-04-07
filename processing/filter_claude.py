@@ -48,6 +48,9 @@ SCARTA senza esitazione:
 - Sponsorizzazioni minori, merchandising ordinario
 - Notizie generiche di business senza impatto M&A diretto
 - Articoli duplicati o riformulazioni della stessa notizia
+- Articoli che menzionano M&A solo di passaggio senza dettagli specifici
+- Editoriali e opinioni senza nuove informazioni fattuali
+- Diritti TV o sponsorship senza impatto sulla struttura proprietaria
 """
 
 USER_FILTER_TEMPLATE = """\
@@ -71,14 +74,16 @@ Sei un analista M&A senior al servizio di un team legale. Per ogni notizia gener
    - 7-8: Trattativa avanzata, due diligence in corso, rumour molto credibile
    - 5-6: Rumour di mercato, segnali preliminari, interesse manifestato
    - 3-4: Speculazione, segnale debole
-2. Un riassunto strutturato in 2-4 bullet point:
+2. Uno stato dell'operazione tra questi 4 valori ESATTI:
+   - "Confermato": deal chiuso, closing completato, operazione ufficiale annunciata
+   - "In Trattativa": due diligence in corso, negoziazione avanzata, mandato conferito, advisor nominato
+   - "Rumour": indiscrezione di mercato, fonti anonime, interesse manifestato ma non confermato
+   - "Speculazione": segnale debole, analisi speculativa, nessuna fonte diretta
+3. Un riassunto strutturato in 2-4 bullet point:
    - Chi sono le parti coinvolte
    - Cosa: natura dell'operazione (acquisizione, cessione, ingresso investitore...)
    - Valore/dimensione se noto
-   - Stato: deal chiuso / in corso / rumour / potenziale
-
-Se e un rumour o operazione potenziale, indicalo chiaramente nel riassunto \
-(es. "- Stato: rumour di mercato, nessuna conferma ufficiale").
+   - Stato attuale dell'operazione
 
 Rispondi in italiano. Sii conciso e preciso.
 """
@@ -87,6 +92,7 @@ USER_SUMMARIZE_TEMPLATE = """\
 Per ciascuna delle seguenti notizie, restituisci un JSON array di oggetti con:
 - "index": indice 0-based della notizia
 - "score": punteggio importanza 1-10
+- "deal_status": uno tra "Confermato", "In Trattativa", "Rumour", "Speculazione"
 - "key_points": stringa con bullet points separati da "\\n" (usa "- " come prefisso)
 
 Ordina per score decrescente. Rispondi SOLO con il JSON array.
@@ -165,7 +171,7 @@ def _filter_pass(articles: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 def _summarize_and_rank(articles: list[dict]) -> list[dict]:
     """Genera riassunti e punteggi, poi taglia alle TOP N."""
-    scored: list[tuple[int, dict, str]] = []  # (score, article, key_points)
+    scored: list[tuple[int, dict, str, str]] = []  # (score, article, key_points, deal_status)
 
     for batch_start in range(0, len(articles), SUMMARIZE_BATCH_SIZE):
         batch = articles[batch_start: batch_start + SUMMARIZE_BATCH_SIZE]
@@ -184,20 +190,28 @@ def _summarize_and_rank(articles: list[dict]) -> list[dict]:
                 if 0 <= idx < len(batch):
                     score = int(item.get("score", 5))
                     kp = item.get("key_points", "")
-                    scored.append((score, batch[idx], kp))
+                    ds = item.get("deal_status", "Rumour")
+                    # Valida deal_status
+                    if ds not in ("Confermato", "In Trattativa", "Rumour", "Speculazione"):
+                        ds = "Rumour"
+                    scored.append((score, batch[idx], kp, ds))
         except Exception:
             logger.exception("Errore riassunto batch %d", batch_start)
             for art in batch:
-                scored.append((5, art, "- Riassunto non disponibile"))
+                scored.append((5, art, "- Riassunto non disponibile", "Rumour"))
+
+    # Scarta articoli troppo speculativi (score < 3)
+    scored = [(s, a, k, d) for s, a, k, d in scored if s >= 3]
 
     # Ordina per score decrescente e taglia
     scored.sort(key=lambda x: x[0], reverse=True)
     top = scored[:MAX_TOP_NEWS]
 
     enriched: list[dict] = []
-    for score, art, kp in top:
+    for score, art, kp, ds in top:
         art["importance_score"] = score
         art["key_points"] = kp
+        art["deal_status"] = ds
         enriched.append(art)
 
     logger.info(

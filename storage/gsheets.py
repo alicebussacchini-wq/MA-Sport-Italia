@@ -29,6 +29,7 @@ HEADER_ROW = [
     "summary",
     "key_points",
     "importance_score",
+    "deal_status",
     "title_hash",
 ]
 
@@ -141,6 +142,7 @@ def save_to_sheets(articles: list[dict]) -> int:
                 art.get("summary", "")[:500],
                 art.get("key_points", ""),
                 art.get("importance_score", 0),
+                art.get("deal_status", "Rumour"),
                 art_hash,
             ]
         )

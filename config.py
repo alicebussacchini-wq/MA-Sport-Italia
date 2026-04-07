@@ -8,7 +8,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 # Numero massimo di notizie da tenere dopo ranking (le piu importanti)
-MAX_TOP_NEWS = int(os.getenv("MAX_TOP_NEWS", "20"))
+MAX_TOP_NEWS = int(os.getenv("MAX_TOP_NEWS", "15"))
 
 # -- RSS Feeds ----------------------------------------------------------------
 RSS_FEEDS = {
@@ -58,39 +58,27 @@ MERGERMARKET_PASSWORD = os.getenv("MERGERMARKET_PASSWORD", "")
 # -- SerpApi (Google News) ----------------------------------------------------
 SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 GOOGLE_NEWS_QUERIES = [
-    # --- Deal e acquisizioni ---
-    "acquisizione club calcio Italia",
-    "cessione societa sportiva Italia",
-    "M&A sport Italia",
-    "investitori calcio Serie A",
-    "private equity sport italiano",
-    # --- Rumour e trattative ---
-    "rumour cessione club Serie A",
-    "trattativa vendita societa calcio",
-    "nuovo proprietario club calcio Italia",
-    "fondo investimento calcio italiano",
-    # --- Sport business allargato ---
-    "football club acquisition Europe",
-    "sport M&A deal Italy investor",
-    "Serie A ownership change",
-    "stadium naming rights Italy",
-    "diritti TV Serie A trattativa",
-    # --- PE e finance ---
-    "private equity football Europe deal",
-    "sport investment fund Italy",
-    "ricapitalizzazione club sportivo Italia",
-    "IPO societa sportiva",
-    # --- Nuove query per copertura piu ampia ---
-    "advisor mandato cessione club calcio",
-    "due diligence societa sportiva Italia",
-    "CVC capital partners calcio Serie A",
-    "RedBird sport investimento Italia",
-    "Oaktree Inter Milan",
-    "fondo sovrano calcio Europa",
-    "basket pallavolo acquisizione Italia",
-    "Lega Serie A diritti commerciali investitore",
-    "sport tech startup Italia investimento",
-    "infrastrutture sportive Italia PPP concessione",
+    # --- Deal e acquisizioni (IT) ---
+    "acquisizione cessione club calcio Italia",
+    "M&A sport Italia investitore fondo",
+    "private equity calcio Serie A Italia",
+    # --- Rumour e trattative (IT) ---
+    "rumour cessione vendita societa sportiva Italia",
+    "trattativa nuovo proprietario club calcio Serie A",
+    # --- Sport business (EN) ---
+    "football club acquisition investment Italy Serie A",
+    "sport M&A deal Europe investor private equity",
+    # --- Finance e IPO ---
+    "ricapitalizzazione IPO societa sportiva Italia",
+    "diritti TV Serie A trattativa cessione",
+    # --- Advisor e due diligence ---
+    "advisor mandato due diligence sport calcio Italia",
+    # --- Non-calcio ---
+    "basket pallavolo rugby acquisizione cessione Italia",
+    # --- Infrastrutture ---
+    "stadio infrastrutture sportive concessione Italia",
+    # --- Fondi specifici (alto valore) ---
+    "fondo sovrano calcio Europa investimento",
 ]
 
 # -- Google Sheets -------------------------------------------------------------

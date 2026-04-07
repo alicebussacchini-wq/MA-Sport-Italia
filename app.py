@@ -234,6 +234,67 @@ def _load_data() -> pd.DataFrame:
 
 
 # =============================================================================
+# Weekly summary generator (Claude AI)
+# =============================================================================
+def _generate_weekly_summary(weekly_df: pd.DataFrame) -> str:
+    """Genera un riassunto settimanale narrativo usando Claude."""
+    try:
+        from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+        import anthropic
+    except Exception:
+        return ""
+
+    if not ANTHROPIC_API_KEY or weekly_df.empty:
+        return ""
+
+    # Check cache
+    week_key = f"weekly_summary_{len(weekly_df)}_{weekly_df['title'].iloc[0][:20] if len(weekly_df) > 0 else ''}"
+    if week_key in st.session_state:
+        return st.session_state[week_key]
+
+    # Build prompt from articles
+    articles_text = []
+    for _, row in weekly_df.iterrows():
+        status = str(row.get("deal_status", "N/A"))
+        score = int(row.get("importance_score", 5))
+        kp = str(row.get("key_points", ""))
+        articles_text.append(
+            f"- [{status} | Score {score}] {row.get('title', '')}\n  {kp}"
+        )
+    articles_block = "\n".join(articles_text)
+
+    system_prompt = (
+        "Sei un analista M&A senior di Hogan Lovells. Scrivi un executive summary "
+        "settimanale in italiano per il team legale. Stile: professionale, conciso, "
+        "diretto. Struttura il riassunto in sezioni: "
+        "1) Deal confermati e operazioni ufficiali, "
+        "2) Trattative in corso e negoziazioni avanzate, "
+        "3) Rumour e segnali di mercato notevoli. "
+        "Ometti le sezioni vuote. Usa 3-5 paragrafi totali. "
+        "Non usare bullet point, scrivi in forma narrativa."
+    )
+
+    user_prompt = (
+        f"Ecco le {len(weekly_df)} notizie M&A sport di questa settimana. "
+        f"Genera l'executive summary settimanale.\n\n{articles_block}"
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=1500,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        summary = message.content[0].text.strip()
+        st.session_state[week_key] = summary
+        return summary
+    except Exception:
+        return ""
+
+
+# =============================================================================
 # News card renderer (brand-compliant)
 # =============================================================================
 def _render_news_card(row: pd.Series):
@@ -251,16 +312,26 @@ def _render_news_card(row: pd.Series):
         except Exception:
             pub_str = str(published)[:10]
 
-    # Score badge: lime for high, teal for mid, muted for low
-    if score >= 8:
-        score_bg, score_fg = "#1A2508", HL_LIME
-        label = "Confermato"
-    elif score >= 5:
-        score_bg, score_fg = "#0D1A18", HL_TEAL
-        label = "In corso"
-    else:
-        score_bg, score_fg = "#1A1A18", HL_TAUPE
-        label = "Rumour"
+    # Deal status badge — colori distinti per stato
+    deal_status = str(row.get("deal_status", ""))
+    STATUS_COLORS = {
+        "Confermato": ("#1A2508", HL_LIME),
+        "In Trattativa": ("#0D1A18", HL_TEAL),
+        "Rumour": ("#141225", HL_LILAC),
+        "Speculazione": ("#1A1A18", HL_TAUPE),
+    }
+    # Fallback: deriva dallo score se deal_status mancante (dati vecchi)
+    if deal_status not in STATUS_COLORS:
+        if score >= 8:
+            deal_status = "Confermato"
+        elif score >= 6:
+            deal_status = "In Trattativa"
+        elif score >= 4:
+            deal_status = "Rumour"
+        else:
+            deal_status = "Speculazione"
+    score_bg, score_fg = STATUS_COLORS[deal_status]
+    label = deal_status
 
     # Title with link (lime green links on dark = brand compliant)
     if link and link != "nan" and link.startswith("http"):
@@ -699,8 +770,15 @@ def _render_dashboard():
         st.markdown("### Filtri")
         sources = sorted(df["source"].dropna().unique()) if "source" in df.columns else []
         selected_sources = st.multiselect("Fonti", sources, default=sources)
+
+        # Deal status filter
+        all_statuses = ["Confermato", "In Trattativa", "Rumour", "Speculazione"]
+        selected_statuses = st.multiselect(
+            "Stato operazione", all_statuses, default=all_statuses
+        )
+
         if "importance_score" in df.columns:
-            min_score = st.slider("Score minimo", 1, 10, 5)
+            min_score = st.slider("Score minimo", 1, 10, 3)
         else:
             min_score = 1
         if "data_raccolta" in df.columns and not df["data_raccolta"].isna().all():
@@ -713,10 +791,22 @@ def _render_dashboard():
         else:
             date_range = None
 
+    # Ensure deal_status column exists (backward compat with old data)
+    if "deal_status" not in df.columns:
+        df["deal_status"] = df.apply(
+            lambda r: "Confermato" if int(r.get("importance_score", 5)) >= 8
+            else "In Trattativa" if int(r.get("importance_score", 5)) >= 6
+            else "Rumour" if int(r.get("importance_score", 5)) >= 4
+            else "Speculazione",
+            axis=1,
+        )
+
     # Apply filters
     mask = pd.Series(True, index=df.index)
     if selected_sources and "source" in df.columns:
         mask &= df["source"].isin(selected_sources)
+    if selected_statuses:
+        mask &= df["deal_status"].isin(selected_statuses)
     if "importance_score" in df.columns:
         mask &= df["importance_score"] >= min_score
     if date_range and len(date_range) == 2 and "data_raccolta" in df.columns:
@@ -727,12 +817,12 @@ def _render_dashboard():
     if "importance_score" in filtered.columns:
         filtered = filtered.sort_values("importance_score", ascending=False)
 
-    # KPI cards (lime green values on dark green cards)
+    # KPI cards based on deal_status
     n_total = len(filtered)
     n_sources = filtered["source"].nunique() if "source" in filtered.columns else 0
-    avg_score = filtered["importance_score"].mean() if "importance_score" in filtered.columns and n_total > 0 else 0
-    n_high = len(filtered[filtered["importance_score"] >= 8]) if "importance_score" in filtered.columns else 0
-    n_rumour = len(filtered[filtered["importance_score"] < 5]) if "importance_score" in filtered.columns else 0
+    n_confirmed = len(filtered[filtered["deal_status"] == "Confermato"]) if "deal_status" in filtered.columns else 0
+    n_trattativa = len(filtered[filtered["deal_status"] == "In Trattativa"]) if "deal_status" in filtered.columns else 0
+    n_rumour = len(filtered[filtered["deal_status"] == "Rumour"]) if "deal_status" in filtered.columns else 0
 
     st.markdown(f"""
     <div style="display:flex;gap:0.8rem;margin-bottom:1.3rem;">
@@ -741,12 +831,12 @@ def _render_dashboard():
             <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Notizie</div>
         </div>
         <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_LIME};line-height:1;">{n_high}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Deal confermati</div>
+            <div style="font-size:2rem;font-weight:700;color:{HL_LIME};line-height:1;">{n_confirmed}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Confermati</div>
         </div>
         <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_TEAL};line-height:1;">{avg_score:.1f}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Score medio</div>
+            <div style="font-size:2rem;font-weight:700;color:{HL_TEAL};line-height:1;">{n_trattativa}</div>
+            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">In Trattativa</div>
         </div>
         <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
             <div style="font-size:2rem;font-weight:700;color:{HL_LILAC};line-height:1;">{n_rumour}</div>
@@ -795,8 +885,48 @@ def _render_dashboard():
                 f'{len(weekly)} notizie questa settimana</div>',
                 unsafe_allow_html=True,
             )
-            for _, row in weekly.iterrows():
-                _render_news_card(row)
+
+            # Weekly executive summary
+            col_summary, col_regen = st.columns([6, 1])
+            with col_regen:
+                regen = st.button("Rigenera", key="regen_summary")
+            if regen:
+                # Clear cache to force regeneration
+                for k in list(st.session_state.keys()):
+                    if k.startswith("weekly_summary_"):
+                        del st.session_state[k]
+
+            with st.spinner("Generazione riassunto settimanale..."):
+                summary_text = _generate_weekly_summary(weekly)
+            if summary_text:
+                st.markdown(
+                    f'<div style="background:{BG_CARD};border-left:4px solid {HL_LIME};'
+                    f'border-radius:0 12px 12px 0;padding:1.2rem 1.5rem;margin-bottom:1.2rem;'
+                    f'border:1px solid {BORDER};border-left:4px solid {HL_LIME};">'
+                    f'<div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:1.5px;'
+                    f'color:{HL_LIME};font-weight:600;margin-bottom:0.8rem;">Executive Summary</div>'
+                    f'<div style="color:{TEXT_PRIMARY};font-size:0.92rem;line-height:1.8;'
+                    f'font-family:Georgia,serif;">{summary_text}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+            # Group by deal status
+            for status in ["Confermato", "In Trattativa", "Rumour", "Speculazione"]:
+                status_df = weekly[weekly["deal_status"] == status]
+                if status_df.empty:
+                    continue
+                status_colors = {
+                    "Confermato": HL_LIME, "In Trattativa": HL_TEAL,
+                    "Rumour": HL_LILAC, "Speculazione": HL_TAUPE,
+                }
+                st.markdown(
+                    f'<div style="color:{status_colors.get(status, TEXT_MUTED)};font-size:0.9rem;'
+                    f'font-weight:600;margin:1rem 0 0.4rem 0;text-transform:uppercase;'
+                    f'letter-spacing:1px;">{status} ({len(status_df)})</div>',
+                    unsafe_allow_html=True,
+                )
+                for _, row in status_df.iterrows():
+                    _render_news_card(row)
 
     with tab_archive:
         search_archive = st.text_input("Cerca nell'archivio", placeholder="Cerca per titolo, fonte...", key="search_archive")
