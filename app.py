@@ -220,9 +220,9 @@ def _load_data() -> pd.DataFrame:
             return pd.DataFrame()
         df = pd.DataFrame(records)
         if "data_raccolta" in df.columns:
-            df["data_raccolta"] = pd.to_datetime(df["data_raccolta"], errors="coerce")
+            df["data_raccolta"] = pd.to_datetime(df["data_raccolta"], utc=True, errors="coerce")
         if "published" in df.columns:
-            df["published"] = pd.to_datetime(df["published"], errors="coerce")
+            df["published"] = pd.to_datetime(df["published"], utc=True, errors="coerce")
         if "importance_score" in df.columns:
             df["importance_score"] = pd.to_numeric(
                 df["importance_score"], errors="coerce"
