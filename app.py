@@ -817,37 +817,46 @@ def _render_dashboard():
     if "importance_score" in filtered.columns:
         filtered = filtered.sort_values("importance_score", ascending=False)
 
-    # KPI cards based on deal_status
+    # KPI cards — interactive: click to filter by status
     n_total = len(filtered)
     n_sources = filtered["source"].nunique() if "source" in filtered.columns else 0
     n_confirmed = len(filtered[filtered["deal_status"] == "Confermato"]) if "deal_status" in filtered.columns else 0
     n_trattativa = len(filtered[filtered["deal_status"] == "In Trattativa"]) if "deal_status" in filtered.columns else 0
     n_rumour = len(filtered[filtered["deal_status"] == "Rumour"]) if "deal_status" in filtered.columns else 0
+    n_speculazione = len(filtered[filtered["deal_status"] == "Speculazione"]) if "deal_status" in filtered.columns else 0
 
-    st.markdown(f"""
-    <div style="display:flex;gap:0.8rem;margin-bottom:1.3rem;">
-        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_LIME};line-height:1;">{n_total}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Notizie</div>
-        </div>
-        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_LIME};line-height:1;">{n_confirmed}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Confermati</div>
-        </div>
-        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_TEAL};line-height:1;">{n_trattativa}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">In Trattativa</div>
-        </div>
-        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_LILAC};line-height:1;">{n_rumour}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Rumour</div>
-        </div>
-        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:10px;padding:1rem 1.2rem;flex:1;text-align:center;">
-            <div style="font-size:2rem;font-weight:700;color:{HL_TAUPE};line-height:1;">{n_sources}</div>
-            <div style="font-size:0.7rem;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:1px;margin-top:0.3rem;">Fonti</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Active filter from KPI click
+    if "kpi_filter" not in st.session_state:
+        st.session_state["kpi_filter"] = None
+
+    kpi_cols = st.columns(5)
+    kpi_defs = [
+        ("Tutti", n_total, HL_LIME, None),
+        ("Confermati", n_confirmed, HL_LIME, "Confermato"),
+        ("In Trattativa", n_trattativa, HL_TEAL, "In Trattativa"),
+        ("Rumour", n_rumour, HL_LILAC, "Rumour"),
+        ("Speculazione", n_speculazione, HL_TAUPE, "Speculazione"),
+    ]
+    for col, (lbl, count, color, status_val) in zip(kpi_cols, kpi_defs):
+        with col:
+            is_active = st.session_state["kpi_filter"] == status_val
+            border_color = color if is_active else BORDER
+            border_width = "2px" if is_active else "1px"
+            st.markdown(
+                f'<div style="background:{BG_CARD};border:{border_width} solid {border_color};'
+                f'border-radius:10px;padding:0.8rem 0.5rem;text-align:center;">'
+                f'<div style="font-size:1.8rem;font-weight:700;color:{color};line-height:1;">{count}</div>'
+                f'<div style="font-size:0.65rem;color:{TEXT_MUTED};text-transform:uppercase;'
+                f'letter-spacing:1px;margin-top:0.3rem;">{lbl}</div></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(lbl, key=f"kpi_{lbl}", use_container_width=True):
+                st.session_state["kpi_filter"] = status_val
+                st.rerun()
+
+    # Apply KPI filter
+    if st.session_state["kpi_filter"]:
+        filtered = filtered[filtered["deal_status"] == st.session_state["kpi_filter"]].copy()
 
     # Tabs
     tab_news, tab_archive, tab_report, tab_mm = st.tabs([
