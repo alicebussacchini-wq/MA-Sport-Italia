@@ -227,10 +227,15 @@ def _load_data() -> pd.DataFrame:
             df["importance_score"] = pd.to_numeric(
                 df["importance_score"], errors="coerce"
             ).fillna(5).astype(int)
-        # Filtra solo notizie da gennaio 2026 in poi
+        # Filtra solo notizie da gennaio 2026 in poi (su ENTRAMBE le date)
+        cutoff = pd.Timestamp("2026-01-01", tz="UTC")
+        if "published" in df.columns:
+            # Rimuovi articoli pubblicati prima del 2026
+            has_pub = df["published"].notna()
+            df = df[~has_pub | (df["published"] >= cutoff)].copy()
         if "data_raccolta" in df.columns:
-            cutoff = pd.Timestamp("2026-01-01", tz="UTC")
-            df = df[df["data_raccolta"] >= cutoff].copy()
+            has_dr = df["data_raccolta"].notna()
+            df = df[~has_dr | (df["data_raccolta"] >= cutoff)].copy()
         return df
     except Exception as e:
         st.error(f"Errore caricamento dati: {e}")
