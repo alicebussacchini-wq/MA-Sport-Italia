@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 def _matches_keywords(text: str) -> bool:
-    """Pre-filtro rapido su keyword M&A (case-insensitive)."""
+    """Pre-filtro su keyword M&A — richiede almeno 2 match per ridurre rumore."""
     text_lower = text.lower()
-    return any(kw.lower() in text_lower for kw in MA_KEYWORDS)
+    matches = sum(1 for kw in MA_KEYWORDS if kw.lower() in text_lower)
+    return matches >= 2
 
 
 def collect_rss() -> list[dict]:

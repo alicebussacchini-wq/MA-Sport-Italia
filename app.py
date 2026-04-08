@@ -227,6 +227,10 @@ def _load_data() -> pd.DataFrame:
             df["importance_score"] = pd.to_numeric(
                 df["importance_score"], errors="coerce"
             ).fillna(5).astype(int)
+        # Filtra solo notizie da gennaio 2026 in poi
+        if "data_raccolta" in df.columns:
+            cutoff = pd.Timestamp("2026-01-01", tz="UTC")
+            df = df[df["data_raccolta"] >= cutoff].copy()
         return df
     except Exception as e:
         st.error(f"Errore caricamento dati: {e}")
@@ -352,10 +356,18 @@ def _render_news_card(row: pd.Series):
         f'text-transform:uppercase;">{label}</span>'
     )
 
-    # Key points (lime green left border per brand angular style)
+    # Key points / summary (lime green left border per brand angular style)
+    summary = str(row.get("summary", ""))
     kp_html = ""
+    # Use key_points if available, otherwise fall back to summary
+    display_text = ""
     if key_points and key_points.strip() and key_points != "nan":
-        kp_lines = key_points.replace("\\n", "\n").split("\n")
+        display_text = key_points
+    elif summary and summary.strip() and summary != "nan":
+        display_text = summary
+
+    if display_text:
+        kp_lines = display_text.replace("\\n", "\n").split("\n")
         kp_clean = [line.strip() for line in kp_lines if line.strip()]
         kp_text = "<br>".join(kp_clean)
         kp_html = (
@@ -817,12 +829,20 @@ def _render_dashboard():
     if "importance_score" in filtered.columns:
         filtered = filtered.sort_values("importance_score", ascending=False)
 
-    # KPI cards — interactive: click to filter by status
-    n_total = len(filtered)
-    n_confirmed = len(filtered[filtered["deal_status"] == "Confermato"]) if "deal_status" in filtered.columns else 0
-    n_trattativa = len(filtered[filtered["deal_status"] == "In Trattativa"]) if "deal_status" in filtered.columns else 0
-    n_rumour = len(filtered[filtered["deal_status"] == "Rumour"]) if "deal_status" in filtered.columns else 0
-    n_speculazione = len(filtered[filtered["deal_status"] == "Speculazione"]) if "deal_status" in filtered.columns else 0
+    # Calcola notizie recenti (ultimi 30 giorni) per i KPI
+    if "data_raccolta" in filtered.columns and not filtered["data_raccolta"].isna().all():
+        _latest = filtered["data_raccolta"].max()
+        _recent_cutoff = _latest - pd.Timedelta(days=30) if pd.notna(_latest) else None
+        recent = filtered[filtered["data_raccolta"] >= _recent_cutoff] if _recent_cutoff else filtered
+    else:
+        recent = filtered
+
+    # KPI cards — conteggi basati sulle notizie recenti (non tutto l'archivio)
+    n_total = len(recent)
+    n_confirmed = len(recent[recent["deal_status"] == "Confermato"]) if "deal_status" in recent.columns else 0
+    n_trattativa = len(recent[recent["deal_status"] == "In Trattativa"]) if "deal_status" in recent.columns else 0
+    n_rumour = len(recent[recent["deal_status"] == "Rumour"]) if "deal_status" in recent.columns else 0
+    n_speculazione = len(recent[recent["deal_status"] == "Speculazione"]) if "deal_status" in recent.columns else 0
 
     # Active filter from KPI click
     if "kpi_filter" not in st.session_state:
@@ -865,7 +885,7 @@ def _render_dashboard():
                 args=(status_val,),
             )
 
-    # Apply KPI filter
+    # Apply KPI filter to ALL views (tabs, weekly, archive)
     if st.session_state["kpi_filter"]:
         filtered = filtered[filtered["deal_status"] == st.session_state["kpi_filter"]].copy()
 
