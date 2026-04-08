@@ -895,8 +895,9 @@ def _render_dashboard():
         filtered = filtered[filtered["deal_status"] == st.session_state["kpi_filter"]].copy()
 
     # Tabs
-    tab_news, tab_archive, tab_report, tab_mm = st.tabs([
-        "Notizie della settimana", "Archivio completo", "Genera Report", "Import Mergermarket"
+    tab_news, tab_archive, tab_report, tab_mm, tab_bilanci = st.tabs([
+        "Notizie della settimana", "Archivio completo", "Genera Report",
+        "Import Mergermarket", "Bilanci",
     ])
 
     with tab_news:
@@ -1048,6 +1049,388 @@ def _render_dashboard():
 
     with tab_mm:
         _mergermarket_import_section()
+
+    with tab_bilanci:
+        _bilanci_section()
+
+
+# =============================================================================
+# Bilanci — extract KPI from PDF via Claude
+# =============================================================================
+KPI_FIELDS = [
+    ("ricavi", "Ricavi totali"),
+    ("ebitda", "EBITDA"),
+    ("utile_perdita", "Utile/Perdita netto"),
+    ("debito", "Indebitamento finanziario netto"),
+    ("patrimonio_netto", "Patrimonio netto"),
+    ("costo_personale", "Costo del personale"),
+    ("debito_ricavi", "Rapporto debito/ricavi"),
+]
+
+
+def _extract_kpi_from_pdf(pdf_bytes: bytes, societa: str, anno: str) -> dict | None:
+    """Estrae KPI finanziari da un bilancio PDF usando Claude."""
+    import pdfplumber
+
+    try:
+        from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+        import anthropic
+    except Exception:
+        st.error("Chiave API Anthropic non configurata.")
+        return None
+
+    if not ANTHROPIC_API_KEY:
+        st.error("ANTHROPIC_API_KEY mancante.")
+        return None
+
+    # Estrai testo dal PDF (max ~80 pagine per sicurezza)
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        pages_text = []
+        for page in pdf.pages[:80]:
+            txt = page.extract_text()
+            if txt:
+                pages_text.append(txt)
+    full_text = "\n\n".join(pages_text)
+
+    if len(full_text) < 100:
+        st.warning(f"Il PDF di {societa} sembra vuoto o non contiene testo selezionabile.")
+        return None
+
+    # Tronca a ~15000 caratteri per non superare il contesto
+    text_for_claude = full_text[:15000]
+
+    system_prompt = (
+        "Sei un analista finanziario specializzato in bilanci di societa sportive italiane. "
+        "Devi estrarre dati finanziari precisi dal testo di un bilancio ufficiale. "
+        "Rispondi SOLO con un JSON object, nessun altro testo."
+    )
+
+    user_prompt = f"""Analizza il seguente bilancio di "{societa}" (anno {anno}).
+Estrai questi KPI finanziari e restituisci un JSON con queste chiavi esatte:
+
+- "ricavi": Ricavi totali / Valore della produzione (in migliaia di EUR, numero intero)
+- "ebitda": EBITDA / Margine operativo lordo (in migliaia di EUR, numero intero)
+- "utile_perdita": Utile o perdita netto dell'esercizio (in migliaia di EUR, numero intero, negativo se perdita)
+- "debito": Indebitamento finanziario netto / Posizione finanziaria netta (in migliaia di EUR, numero intero)
+- "patrimonio_netto": Patrimonio netto / Totale mezzi propri (in migliaia di EUR, numero intero)
+- "costo_personale": Costo del personale / Costi per il personale (in migliaia di EUR, numero intero)
+- "debito_ricavi": Rapporto debito/ricavi (numero decimale, es. 1.5)
+
+REGOLE:
+- Se un valore e in milioni, convertilo in migliaia (moltiplica x1000)
+- Se un valore non e presente nel documento, usa null
+- I valori devono essere NUMERI, non stringhe
+- Per debito_ricavi: calcolalo come debito / ricavi se hai entrambi
+
+Rispondi SOLO con il JSON, nessun testo aggiuntivo.
+
+TESTO DEL BILANCIO:
+{text_for_claude}"""
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        resp_text = message.content[0].text.strip()
+
+        import json as _json
+        # Parse JSON (potrebbe avere markdown wrapper)
+        if resp_text.startswith("```"):
+            resp_text = resp_text.split("```")[1]
+            if resp_text.startswith("json"):
+                resp_text = resp_text[4:]
+        kpi = _json.loads(resp_text)
+        kpi["societa"] = societa
+        kpi["anno"] = anno
+        return kpi
+
+    except Exception as e:
+        st.error(f"Errore estrazione KPI da {societa}: {e}")
+        return None
+
+
+def _render_comparison_table(bilanci: list[dict]):
+    """Renderizza tabella comparativa KPI."""
+    if not bilanci:
+        return
+
+    # Header
+    headers = ["KPI"] + [f"{b['societa']}\n({b['anno']})" for b in bilanci]
+
+    rows = []
+    for key, label in KPI_FIELDS:
+        row = [label]
+        for b in bilanci:
+            val = b.get(key)
+            if val is None:
+                row.append("N/D")
+            elif key == "debito_ricavi":
+                row.append(f"{val:.2f}x")
+            else:
+                # Formatta migliaia con separatore
+                row.append(f"{val:,.0f} K€" if isinstance(val, (int, float)) else str(val))
+        rows.append(row)
+
+    df_table = pd.DataFrame(rows, columns=headers)
+    st.dataframe(df_table, use_container_width=True, hide_index=True)
+
+
+def _render_comparison_charts(bilanci: list[dict]):
+    """Grafici comparativi con plotly."""
+    import plotly.graph_objects as go
+
+    if len(bilanci) < 1:
+        return
+
+    labels = [f"{b['societa']} ({b['anno']})" for b in bilanci]
+
+    # --- Grafico 1: Barre affiancate Ricavi / EBITDA / Utile ---
+    fig_bars = go.Figure()
+    for key, name, color in [
+        ("ricavi", "Ricavi", HL_LIME),
+        ("ebitda", "EBITDA", HL_TEAL),
+        ("utile_perdita", "Utile/Perdita", HL_LILAC),
+    ]:
+        vals = [b.get(key, 0) or 0 for b in bilanci]
+        fig_bars.add_trace(go.Bar(
+            name=name, x=labels, y=vals,
+            marker_color=color, text=[f"{v:,.0f}" for v in vals],
+            textposition="outside",
+        ))
+    fig_bars.update_layout(
+        title="Confronto Ricavi / EBITDA / Utile (K€)",
+        barmode="group",
+        template="plotly_dark",
+        paper_bgcolor=BG_PRIMARY, plot_bgcolor=BG_CARD,
+        font=dict(color=TEXT_PRIMARY, family="Arial"),
+        legend=dict(orientation="h", y=-0.15),
+        height=420,
+    )
+    st.plotly_chart(fig_bars, use_container_width=True)
+
+    # --- Grafico 2: Struttura patrimoniale ---
+    fig_patrim = go.Figure()
+    for key, name, color in [
+        ("patrimonio_netto", "Patrimonio Netto", HL_LIME),
+        ("debito", "Debito Finanziario", "#FF6B6B"),
+        ("costo_personale", "Costo Personale", HL_TAUPE),
+    ]:
+        vals = [b.get(key, 0) or 0 for b in bilanci]
+        fig_patrim.add_trace(go.Bar(
+            name=name, x=labels, y=[abs(v) for v in vals],
+            marker_color=color, text=[f"{abs(v):,.0f}" for v in vals],
+            textposition="outside",
+        ))
+    fig_patrim.update_layout(
+        title="Struttura Patrimoniale e Costi (K€)",
+        barmode="group",
+        template="plotly_dark",
+        paper_bgcolor=BG_PRIMARY, plot_bgcolor=BG_CARD,
+        font=dict(color=TEXT_PRIMARY, family="Arial"),
+        legend=dict(orientation="h", y=-0.15),
+        height=420,
+    )
+    st.plotly_chart(fig_patrim, use_container_width=True)
+
+    # --- Grafico 3: Radar chart (solo se >= 2 bilanci) ---
+    if len(bilanci) >= 2:
+        radar_keys = ["ricavi", "ebitda", "patrimonio_netto", "costo_personale"]
+        radar_labels = ["Ricavi", "EBITDA", "Patrimonio", "Personale"]
+
+        fig_radar = go.Figure()
+        colors = [HL_LIME, HL_TEAL, HL_LILAC, HL_TAUPE, "#FF6B6B"]
+        for i, b in enumerate(bilanci):
+            vals = [abs(b.get(k, 0) or 0) for k in radar_keys]
+            # Normalizza rispetto al massimo per renderli comparabili
+            max_val = max(vals) if max(vals) > 0 else 1
+            norm_vals = [v / max_val * 100 for v in vals]
+            norm_vals.append(norm_vals[0])  # Chiudi il poligono
+            fig_radar.add_trace(go.Scatterpolar(
+                r=norm_vals,
+                theta=radar_labels + [radar_labels[0]],
+                name=f"{b['societa']} ({b['anno']})",
+                line=dict(color=colors[i % len(colors)]),
+                fill="toself", fillcolor=f"rgba({int(colors[i % len(colors)][1:3], 16)},{int(colors[i % len(colors)][3:5], 16)},{int(colors[i % len(colors)][5:7], 16)},0.1)",
+            ))
+        fig_radar.update_layout(
+            title="Confronto Radar (valori normalizzati)",
+            template="plotly_dark",
+            paper_bgcolor=BG_PRIMARY, plot_bgcolor=BG_CARD,
+            font=dict(color=TEXT_PRIMARY, family="Arial"),
+            polar=dict(bgcolor=BG_CARD),
+            height=450,
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+
+def _generate_bilanci_report(bilanci: list[dict]) -> bytes:
+    """Genera report HTML brandizzato per confronto bilanci."""
+    now = datetime.now().strftime("%d/%m/%Y")
+
+    # Tabella comparativa
+    header_cells = "".join(
+        f'<th style="padding:10px 14px;background:{BG_PRIMARY};color:{HL_LIME};font-size:12px;'
+        f'text-transform:uppercase;letter-spacing:1px;">{b["societa"]}<br>({b["anno"]})</th>'
+        for b in bilanci
+    )
+
+    rows_html = ""
+    for key, label in KPI_FIELDS:
+        cells = ""
+        for b in bilanci:
+            val = b.get(key)
+            if val is None:
+                cells += f'<td style="padding:8px 14px;border-bottom:1px solid {BORDER};color:{TEXT_MUTED};text-align:right;">N/D</td>'
+            elif key == "debito_ricavi":
+                cells += f'<td style="padding:8px 14px;border-bottom:1px solid {BORDER};color:{TEXT_PRIMARY};text-align:right;font-weight:600;">{val:.2f}x</td>'
+            else:
+                color = "#FF6B6B" if isinstance(val, (int, float)) and val < 0 else HL_LIME
+                cells += (
+                    f'<td style="padding:8px 14px;border-bottom:1px solid {BORDER};'
+                    f'color:{color};text-align:right;font-weight:600;">{val:,.0f} K&euro;</td>'
+                )
+        rows_html += (
+            f'<tr><td style="padding:8px 14px;border-bottom:1px solid {BORDER};'
+            f'color:{HL_TAUPE};font-weight:600;font-family:Arial,sans-serif;">{label}</td>'
+            f'{cells}</tr>'
+        )
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>Bilanci Comparati - M&amp;A Sport Italia - {now}</title>
+<style>
+body {{ font-family:Arial,sans-serif; background:{BG_PRIMARY}; color:{TEXT_PRIMARY}; margin:0; padding:30px; }}
+.header {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:30px; padding-bottom:20px; border-bottom:3px solid {HL_LIME}; }}
+.header h1 {{ font-size:20px; margin:0; }}
+.header .sub {{ color:{HL_LIME}; font-size:11px; letter-spacing:2px; text-transform:uppercase; margin-top:4px; }}
+.header .date {{ color:{TEXT_MUTED}; font-size:13px; }}
+table {{ width:100%; border-collapse:collapse; background:{BG_CARD}; border-radius:10px; overflow:hidden; margin-top:20px; }}
+th {{ background:{BG_PRIMARY}; color:{TEXT_MUTED}; font-size:11px; text-transform:uppercase; letter-spacing:1px; padding:10px 14px; text-align:left; }}
+.footer {{ margin-top:30px; padding-top:15px; border-top:1px solid {BORDER}; color:{TEXT_MUTED}; font-size:11px; text-align:center; }}
+</style></head><body>
+<div class="header">
+    <div>
+        <h1>Bilanci Comparati — Societa Sportive</h1>
+        <div class="sub">Hogan Lovells — M&amp;A Sport Italia</div>
+        <span class="date">Report generato il {now}</span>
+    </div>
+</div>
+<p style="color:{TEXT_MUTED};font-family:Georgia,serif;font-size:14px;">
+Confronto KPI finanziari estratti dai bilanci ufficiali depositati.
+Tutti i valori in migliaia di Euro (K&euro;) salvo diversa indicazione.</p>
+<table>
+<thead><tr>
+<th style="padding:10px 14px;background:{BG_PRIMARY};color:{TEXT_MUTED};font-size:11px;text-transform:uppercase;letter-spacing:1px;">KPI</th>
+{header_cells}
+</tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+<div class="footer">
+    Hogan Lovells | M&amp;A Sport Italia Intelligence | Documento riservato | {now}
+</div>
+</body></html>"""
+
+    return html.encode("utf-8")
+
+
+def _bilanci_section():
+    """Tab per upload bilanci e confronto KPI."""
+    st.markdown(
+        f'<div style="color:{TEXT_PRIMARY};font-size:1.2rem;font-weight:600;'
+        f'margin:1rem 0 0.5rem 0;padding-bottom:0.4rem;border-bottom:2px solid {HL_TEAL};">'
+        f'Analisi Bilanci Societa Sportive</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<p style="color:{TEXT_MUTED};font-size:0.88rem;margin-bottom:1rem;font-family:Georgia,serif;">'
+        f'Carica i <strong style="color:{HL_LIME};">bilanci ufficiali in PDF</strong> delle societa sportive. '
+        f'Il sistema estrae automaticamente i KPI finanziari e genera un report comparativo.</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Inizializza storage bilanci in sessione
+    if "bilanci_data" not in st.session_state:
+        st.session_state["bilanci_data"] = []
+
+    # Upload sezione
+    st.markdown(f"**Carica un bilancio**")
+    col_nome, col_anno = st.columns(2)
+    with col_nome:
+        nome_societa = st.text_input("Nome societa", placeholder="Es. AS Roma, Juventus FC...", key="bil_nome")
+    with col_anno:
+        anno_bilancio = st.text_input("Anno bilancio", placeholder="Es. 2024, 2024/2025", key="bil_anno")
+
+    uploaded_pdf = st.file_uploader(
+        "Carica bilancio PDF", type=["pdf"], key="bil_upload",
+    )
+
+    if uploaded_pdf and nome_societa and anno_bilancio:
+        if st.button("Estrai KPI", key="bil_extract", type="primary", use_container_width=True):
+            with st.spinner(f"Analisi bilancio {nome_societa} in corso..."):
+                pdf_bytes = uploaded_pdf.getvalue()
+                kpi = _extract_kpi_from_pdf(pdf_bytes, nome_societa.strip(), anno_bilancio.strip())
+            if kpi:
+                # Evita duplicati
+                existing = [b for b in st.session_state["bilanci_data"]
+                            if b["societa"] == kpi["societa"] and b["anno"] == kpi["anno"]]
+                if existing:
+                    st.session_state["bilanci_data"] = [
+                        b for b in st.session_state["bilanci_data"]
+                        if not (b["societa"] == kpi["societa"] and b["anno"] == kpi["anno"])
+                    ]
+                st.session_state["bilanci_data"].append(kpi)
+                st.success(f"KPI estratti per **{nome_societa}** ({anno_bilancio})")
+                st.rerun()
+    elif uploaded_pdf:
+        st.info("Inserisci il nome della societa e l'anno del bilancio prima di estrarre i KPI.")
+
+    # Mostra bilanci caricati
+    bilanci = st.session_state["bilanci_data"]
+
+    if bilanci:
+        st.markdown(
+            f'<div style="color:{TEXT_PRIMARY};font-size:1.1rem;font-weight:600;'
+            f'margin:1.5rem 0 0.5rem 0;padding-bottom:0.3rem;border-bottom:2px solid {HL_LIME};">'
+            f'Confronto — {len(bilanci)} bilanci caricati</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Bottone per rimuovere un bilancio
+        cols_remove = st.columns(len(bilanci))
+        for i, (col, b) in enumerate(zip(cols_remove, bilanci)):
+            with col:
+                st.markdown(
+                    f'<div style="text-align:center;color:{HL_LIME};font-weight:600;font-size:0.85rem;">'
+                    f'{b["societa"]}<br><span style="color:{TEXT_MUTED};font-size:0.75rem;">{b["anno"]}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("Rimuovi", key=f"bil_rm_{i}", use_container_width=True):
+                    st.session_state["bilanci_data"].pop(i)
+                    st.rerun()
+
+        # Tabella comparativa
+        _render_comparison_table(bilanci)
+
+        # Grafici
+        _render_comparison_charts(bilanci)
+
+        # Export report
+        st.divider()
+        report_bytes = _generate_bilanci_report(bilanci)
+        st.download_button(
+            "Scarica Report Bilanci (HTML)",
+            data=report_bytes,
+            file_name="bilanci_comparati_HL.html",
+            mime="text/html",
+            use_container_width=True,
+            type="primary",
+        )
+    else:
+        st.info("Nessun bilancio caricato. Usa il form sopra per caricare il primo bilancio PDF.")
 
 
 # =============================================================================
