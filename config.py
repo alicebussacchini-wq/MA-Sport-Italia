@@ -5,7 +5,7 @@ load_dotenv(override=True)
 
 # -- Claude API ---------------------------------------------------------------
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MODEL = "claude-sonnet-4-6"
 
 # Numero massimo di notizie da tenere dopo ranking (le piu importanti)
 MAX_TOP_NEWS = int(os.getenv("MAX_TOP_NEWS", "15"))
